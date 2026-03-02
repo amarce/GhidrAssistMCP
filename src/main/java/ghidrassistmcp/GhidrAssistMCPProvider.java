@@ -161,17 +161,25 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         gbc.gridx = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         authModeComboBox = new JComboBox<>(AuthConfig.AuthMode.values());
-        authModeComboBox.setToolTipText("none: no auth, basic: username/password, oauth: bearer token.");
+        authModeComboBox.setToolTipText("none: no auth, basic: username/password, oauth: bearer token. Some clients (including OpenAI-hosted tools) require OAuth for authenticated MCP servers.");
         serverPanel.add(authModeComboBox, gbc);
 
         gbc.gridy = 6;
         gbc.gridx = 0;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
+        JLabel authCompatibilityNote = new JLabel("Note: Some clients (including OpenAI-hosted tools) require OAuth for authenticated MCP servers.");
+        authCompatibilityNote.setForeground(new Color(180, 110, 0));
+        serverPanel.add(authCompatibilityNote, gbc);
+
+        gbc.gridy = 7;
+        gbc.gridx = 0;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         basicAuthPanel = createBasicAuthPanel();
         serverPanel.add(basicAuthPanel, gbc);
 
-        gbc.gridy = 7;
+        gbc.gridy = 8;
         oauthPanel = createOauthPanel();
         serverPanel.add(oauthPanel, gbc);
 
