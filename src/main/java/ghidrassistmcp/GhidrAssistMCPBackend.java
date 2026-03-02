@@ -81,6 +81,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
     private final List<McpEventListener> eventListeners = new CopyOnWriteArrayList<>();
     private volatile GhidrAssistMCPManager manager;
     private volatile boolean asyncExecutionEnabled = true;
+    private volatile boolean allowDestructiveTools = false;
     private final McpTaskManager taskManager;
     private final McpResourceRegistry resourceRegistry;
     private final McpPromptRegistry promptRegistry;
@@ -216,6 +217,11 @@ public class GhidrAssistMCPBackend implements McpBackend {
         asyncSchema.put("type", "boolean");
         asyncSchema.put("description", "Optional: request async execution and immediate task_id response for tools that support it.");
 
+        Map<String, Object> confirmDestructiveSchema = new HashMap<>();
+        confirmDestructiveSchema.put("type", "boolean");
+        confirmDestructiveSchema.put("description", "Optional safety override for destructive operations. " +
+            "Set true to confirm this request is expected to mutate or delete program data.");
+
         if (originalSchema == null) {
             // Create a schema with just program_name (+ async when supported)
             Map<String, Object> props = new HashMap<>();
@@ -223,6 +229,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
             if (supportsAsyncExecution(tool)) {
                 props.put("async", asyncSchema);
             }
+            props.put("confirm_destructive", confirmDestructiveSchema);
             return new McpSchema.JsonSchema("object", props, List.of(), null, null, null);
         }
 
@@ -241,6 +248,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
         if (supportsAsyncExecution(tool)) {
             newProps.put("async", asyncSchema);
         }
+        newProps.put("confirm_destructive", confirmDestructiveSchema);
 
         // Return new schema with augmented properties
         return new McpSchema.JsonSchema(
@@ -271,6 +279,11 @@ public class GhidrAssistMCPBackend implements McpBackend {
             return McpSchema.CallToolResult.builder()
                 .addTextContent("Tool is disabled: " + toolName)
                 .build();
+        }
+
+        McpSchema.CallToolResult policyBlock = evaluateDestructivePolicy(tool, toolName, safeArguments);
+        if (policyBlock != null) {
+            return policyBlock;
         }
 
         try {
@@ -392,6 +405,65 @@ public class GhidrAssistMCPBackend implements McpBackend {
 
     private boolean supportsAsyncExecution(McpTool tool, String toolName) {
         return tool.supportsAsync() || asyncCapableTools.contains(toolName);
+    }
+
+    private McpSchema.CallToolResult evaluateDestructivePolicy(McpTool tool, String toolName, Map<String, Object> arguments) {
+        if (!isDestructiveCall(tool, toolName, arguments)) {
+            return null;
+        }
+
+        boolean requestConfirmed = isConfirmDestructiveRequested(arguments);
+        if (allowDestructiveTools || requestConfirmed) {
+            return null;
+        }
+
+        String message = "Destructive tool call blocked by policy for '" + toolName + "'. " +
+            "This operation can modify or delete program data. " +
+            "To proceed, either enable allow_destructive_tools in plugin configuration " +
+            "or re-send this request with confirm_destructive=true.";
+
+        Msg.warn(this, message + " args=" + arguments);
+        notifySessionEvent("Blocked destructive tool call: " + toolName + " args=" + arguments);
+
+        return McpSchema.CallToolResult.builder()
+            .addTextContent(message)
+            .build();
+    }
+
+    private boolean isDestructiveCall(McpTool tool, String toolName, Map<String, Object> arguments) {
+        if (tool.isDestructive()) {
+            return true;
+        }
+
+        if ("struct".equals(toolName)) {
+            Object actionObj = arguments.get("action");
+            if (actionObj instanceof String) {
+                String action = ((String) actionObj).toLowerCase();
+                return !"field_xrefs".equals(action);
+            }
+            return true;
+        }
+
+        if ("rename_symbol_batch".equals(toolName)) {
+            Object renamesObj = arguments.get("renames");
+            if (renamesObj instanceof List<?>) {
+                return !((List<?>) renamesObj).isEmpty();
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    private boolean isConfirmDestructiveRequested(Map<String, Object> arguments) {
+        Object confirmValue = arguments.get("confirm_destructive");
+        if (confirmValue instanceof Boolean) {
+            return ((Boolean) confirmValue).booleanValue();
+        }
+        if (confirmValue instanceof String) {
+            return Boolean.parseBoolean((String) confirmValue);
+        }
+        return false;
     }
 
     private Map<String, Object> buildOperationMetadata(String toolName, Map<String, Object> arguments, Program targetProgram) {
@@ -783,6 +855,16 @@ public class GhidrAssistMCPBackend implements McpBackend {
      */
     public boolean isAsyncExecutionEnabled() {
         return asyncExecutionEnabled;
+    }
+
+    public void setAllowDestructiveTools(boolean allow) {
+        this.allowDestructiveTools = allow;
+        Msg.warn(this, "Destructive tool policy: allow_destructive_tools=" + allow);
+        notifySessionEvent("Destructive tool policy updated: allow_destructive_tools=" + allow);
+    }
+
+    public boolean isAllowDestructiveTools() {
+        return allowDestructiveTools;
     }
 
     /**

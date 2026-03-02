@@ -311,9 +311,9 @@ public class GhidrAssistMCPManager {
      * Apply configuration changes.
      */
     public void applyConfiguration(String host, int port, boolean enabled, boolean asyncEnabled,
-                                   java.util.Map<String, Boolean> toolStates) {
+                                   boolean allowDestructiveTools, java.util.Map<String, Boolean> toolStates) {
         if (provider != null) {
-            provider.logMessage("Applying configuration: " + host + ":" + port + " enabled=" + enabled + " async=" + asyncEnabled);
+            provider.logMessage("Applying configuration: " + host + ":" + port + " enabled=" + enabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools);
         }
 
         boolean needsRestart = false;
@@ -332,6 +332,7 @@ public class GhidrAssistMCPManager {
         // Update async execution setting
         if (backend != null) {
             backend.setAsyncExecutionEnabled(asyncEnabled);
+            backend.setAllowDestructiveTools(allowDestructiveTools);
         }
 
         // Update tool states
@@ -376,6 +377,7 @@ public class GhidrAssistMCPManager {
         String portStr = Preferences.getProperty("GhidrAssistMCP.Server Port", "8080");
         String enabledStr = Preferences.getProperty("GhidrAssistMCP.Server Enabled", "true");
         String asyncEnabledStr = Preferences.getProperty("GhidrAssistMCP.Async Execution Enabled", "true");
+        String allowDestructiveStr = Preferences.getProperty("GhidrAssistMCP.Allow Destructive Tools", "false");
 
         try {
             currentPort = Integer.parseInt(portStr);
@@ -387,14 +389,16 @@ public class GhidrAssistMCPManager {
         }
 
         boolean asyncEnabled = Boolean.parseBoolean(asyncEnabledStr);
+        boolean allowDestructiveTools = Boolean.parseBoolean(allowDestructiveStr);
         if (backend != null) {
             backend.setAsyncExecutionEnabled(asyncEnabled);
+            backend.setAllowDestructiveTools(allowDestructiveTools);
         }
 
-        Msg.info(this, "Loaded settings from Ghidra preferences: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled);
+        Msg.info(this, "Loaded settings from Ghidra preferences: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools);
 
         if (provider != null) {
-            provider.logMessage("Loaded configuration: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled);
+            provider.logMessage("Loaded configuration: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools);
         }
     }
 

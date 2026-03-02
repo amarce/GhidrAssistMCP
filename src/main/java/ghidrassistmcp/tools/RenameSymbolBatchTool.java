@@ -34,6 +34,11 @@ public class RenameSymbolBatchTool implements McpTool {
     }
 
     @Override
+    public boolean isDestructive() {
+        return true;
+    }
+
+    @Override
     public boolean isIdempotent() {
         // Matches behavior/annotation of the single-item rename tool.
         return true;
