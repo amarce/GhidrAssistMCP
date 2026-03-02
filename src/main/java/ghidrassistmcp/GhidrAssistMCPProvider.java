@@ -41,9 +41,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private static final String ENABLED_SETTING = "Server Enabled";
     private static final String ASYNC_ENABLED_SETTING = "Async Execution Enabled";
     private static final String ALLOW_DESTRUCTIVE_TOOLS_SETTING = "Allow Destructive Tools";
-    private static final String AUTH_ENABLED_SETTING = "Basic Auth Enabled";
-    private static final String AUTH_USERNAME_SETTING = "Basic Auth Username";
-    private static final String AUTH_PASSWORD_SETTING = "Basic Auth Password";
+    private static final String AUTH_ENABLED_SETTING = BasicAuthConfig.AUTH_ENABLED_SETTING;
+    private static final String AUTH_USERNAME_SETTING = BasicAuthConfig.AUTH_USERNAME_SETTING;
     private static final String TOOL_PREFIX = "Tool.";
     
     // Default values
@@ -53,8 +52,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private static final boolean DEFAULT_ASYNC_ENABLED = true;
     private static final boolean DEFAULT_ALLOW_DESTRUCTIVE_TOOLS = false;
     private static final boolean DEFAULT_AUTH_ENABLED = false;
-    private static final String DEFAULT_AUTH_USERNAME = "mcp";
-    private static final String DEFAULT_AUTH_PASSWORD = "mcp";
+    private static final String DEFAULT_AUTH_USERNAME = BasicAuthConfig.DEFAULT_AUTH_USERNAME;
+    private static final String DEFAULT_AUTH_PASSWORD = "";
     
     private final PluginTool tool;
     private final GhidrAssistMCPPlugin plugin;
@@ -73,6 +72,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private DefaultTableModel toolsTableModel;
     private JButton saveButton;
     private Map<String, Boolean> toolEnabledStates;
+    private String currentAuthPasswordHash = "";
     
     // Log tab components
     private JTextArea logTextArea;
@@ -322,7 +322,11 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         String allowDestructiveStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(DEFAULT_ALLOW_DESTRUCTIVE_TOOLS));
         String authEnabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + AUTH_ENABLED_SETTING, String.valueOf(DEFAULT_AUTH_ENABLED));
         String authUsername = Preferences.getProperty(SETTINGS_CATEGORY + "." + AUTH_USERNAME_SETTING, DEFAULT_AUTH_USERNAME);
-        String authPassword = Preferences.getProperty(SETTINGS_CATEGORY + "." + AUTH_PASSWORD_SETTING, DEFAULT_AUTH_PASSWORD);
+        currentAuthPasswordHash = BasicAuthConfig.resolvePasswordHash();
+        String legacyPlaintextPassword = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_PASSWORD_SETTING), "");
+        String authPassword = (!legacyPlaintextPassword.isEmpty() && currentAuthPasswordHash.isEmpty())
+            ? legacyPlaintextPassword
+            : DEFAULT_AUTH_PASSWORD;
 
         int port = DEFAULT_PORT;
         boolean enabled = DEFAULT_ENABLED;
@@ -380,9 +384,10 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ENABLED_SETTING, String.valueOf(enabledCheckBox.isSelected()));
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ASYNC_ENABLED_SETTING, String.valueOf(asyncEnabledCheckBox.isSelected()));
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(allowDestructiveToolsCheckBox.isSelected()));
-        Preferences.setProperty(SETTINGS_CATEGORY + "." + AUTH_ENABLED_SETTING, String.valueOf(authEnabledCheckBox.isSelected()));
-        Preferences.setProperty(SETTINGS_CATEGORY + "." + AUTH_USERNAME_SETTING, authUsernameField.getText());
-        Preferences.setProperty(SETTINGS_CATEGORY + "." + AUTH_PASSWORD_SETTING, new String(authPasswordField.getPassword()));
+        String enteredPassword = new String(authPasswordField.getPassword());
+        currentAuthPasswordHash = BasicAuthConfig.chooseHashForSave(enteredPassword, currentAuthPasswordHash);
+
+        BasicAuthConfig.persistAuthSettings(authEnabledCheckBox.isSelected(), authUsernameField.getText(), currentAuthPasswordHash);
 
         // Force preferences to be saved to disk
         Preferences.store();
@@ -404,17 +409,28 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         plugin.applyConfiguration(hostField.getText(), (Integer) portSpinner.getValue(),
                                 enabledCheckBox.isSelected(), asyncEnabledCheckBox.isSelected(),
                                 allowDestructiveToolsCheckBox.isSelected(), authEnabledCheckBox.isSelected(),
-                                authUsernameField.getText(), new String(authPasswordField.getPassword()),
+                                authUsernameField.getText(), enteredPassword,
                                 toolEnabledStates);
     }
     
     public void logMessage(String message) {
         SwingUtilities.invokeLater(() -> {
             String timestamp = dateFormat.format(new Date());
-            String logEntry = "[" + timestamp + "] " + message + "\n";
+            String logEntry = "[" + timestamp + "] " + sanitizeLogMessage(message) + "\n";
             logTextArea.append(logEntry);
             logTextArea.setCaretPosition(logTextArea.getDocument().getLength());
         });
+    }
+
+    private String sanitizeLogMessage(String message) {
+        if (message == null) {
+            return "";
+        }
+
+        return message
+            .replaceAll("(?i)(authorization\\s*[:=]\\s*)(basic\\s+[A-Za-z0-9+/=._-]+)", "$1[REDACTED]")
+            .replaceAll("(?i)(password\\s*[:=]\\s*)([^,\\s]+)", "$1[REDACTED]")
+            .replaceAll("(?i)(username\\s*[:=]\\s*)([^,\\s]+)", "$1[REDACTED]");
     }
     
     public void logRequest(String method, String params) {

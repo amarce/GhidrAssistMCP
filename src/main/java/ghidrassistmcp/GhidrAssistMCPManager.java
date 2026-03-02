@@ -45,8 +45,8 @@ public class GhidrAssistMCPManager {
     private int currentPort = 8080;
     private boolean serverEnabled = true;
     private boolean authEnabled = false;
-    private String authUsername = "mcp";
-    private String authPassword = "mcp";
+    private String authUsername = BasicAuthConfig.DEFAULT_AUTH_USERNAME;
+    private String authPasswordHash = "";
 
     /**
      * Private constructor for singleton pattern.
@@ -337,11 +337,11 @@ public class GhidrAssistMCPManager {
         }
 
         String normalizedAuthUsername = newAuthUsername != null ? newAuthUsername : "";
-        String normalizedAuthPassword = newAuthPassword != null ? newAuthPassword : "";
-        if (newAuthEnabled != authEnabled || !normalizedAuthUsername.equals(authUsername) || !normalizedAuthPassword.equals(authPassword)) {
+        String normalizedAuthPasswordHash = BasicAuthConfig.chooseHashForSave(newAuthPassword, authPasswordHash);
+        if (newAuthEnabled != authEnabled || !normalizedAuthUsername.equals(authUsername) || !normalizedAuthPasswordHash.equals(authPasswordHash)) {
             authEnabled = newAuthEnabled;
             authUsername = normalizedAuthUsername;
-            authPassword = normalizedAuthPassword;
+            authPasswordHash = normalizedAuthPasswordHash;
             needsRestart = true;
         }
 
@@ -394,9 +394,14 @@ public class GhidrAssistMCPManager {
         String enabledStr = Preferences.getProperty("GhidrAssistMCP.Server Enabled", "true");
         String asyncEnabledStr = Preferences.getProperty("GhidrAssistMCP.Async Execution Enabled", "true");
         String allowDestructiveStr = Preferences.getProperty("GhidrAssistMCP.Allow Destructive Tools", "false");
-        String authEnabledStr = Preferences.getProperty("GhidrAssistMCP.Basic Auth Enabled", "false");
-        authUsername = Preferences.getProperty("GhidrAssistMCP.Basic Auth Username", "mcp");
-        authPassword = Preferences.getProperty("GhidrAssistMCP.Basic Auth Password", "mcp");
+        String authEnabledStr = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_ENABLED_SETTING), "false");
+        authUsername = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_USERNAME_SETTING), BasicAuthConfig.DEFAULT_AUTH_USERNAME);
+        authPasswordHash = BasicAuthConfig.resolvePasswordHash();
+
+        String legacyPlaintextPassword = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_PASSWORD_SETTING), "");
+        if (authPasswordHash.isEmpty() && !legacyPlaintextPassword.isEmpty()) {
+            authPasswordHash = PasswordVerifier.hashPassword(legacyPlaintextPassword);
+        }
 
         try {
             currentPort = Integer.parseInt(portStr);
@@ -439,7 +444,7 @@ public class GhidrAssistMCPManager {
         }
 
         try {
-            server = new GhidrAssistMCPServer(currentHost, currentPort, backend, provider, authEnabled, authUsername, authPassword);
+            server = new GhidrAssistMCPServer(currentHost, currentPort, backend, provider, authEnabled, authUsername, authPasswordHash);
             server.start();
             if (provider != null) {
                 provider.logSession("Server started on " + currentHost + ":" + currentPort);
