@@ -10,7 +10,7 @@ GhidrAssistMCP bridges the gap between AI-powered analysis tools and Ghidra's co
 
 - **MCP Server Integration**: Full Model Context Protocol server implementation using official SDK
 - **Dual HTTP Transports**: Supports SSE and Streamable HTTP transports for maximum client compatibility
-- **34 Built-in Tools**: Comprehensive set of analysis tools with action-based consolidation for cleaner APIs
+- **37 Built-in Tools**: Comprehensive set of analysis tools with action-based consolidation for cleaner APIs
 - **5 MCP Resources**: Static data resources for program info, functions, strings, imports, and exports
 - **5 MCP Prompts**: Pre-built analysis prompts for common reverse engineering tasks
 - **Result Caching**: Intelligent caching system to improve performance for repeated queries
@@ -144,6 +144,8 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | --------- | ------ | ----------- |
 | `format` | `decompiler`, `disassembly`, `pcode` | Output format |
 | `raw` | boolean | Only affects `format: "pcode"` (raw pcode ops vs grouped by basic blocks) |
+| `auto_analyze` | boolean | Optional: run auto-analysis before producing output |
+| `memory_zones` | array | Optional per-request zones (`start`, `end`, `label`) to include memory context in output |
 
 #### `class` - Class Operations Tool
 
@@ -193,6 +195,15 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | `add` | Add a new bookmark |
 | `delete` | Delete a bookmark |
 
+#### `analysis_tasks` - Analysis Orchestration Tool
+
+| Action | Description |
+| ------ | ----------- |
+| `auto_analyze` | Trigger Ghidra auto-analysis for the target program |
+| `set_memory_zones` | Configure custom memory zones used by analysis/decompilation tasks |
+| `list_memory_zones` | List configured memory zones for the target program |
+| `clear_memory_zones` | Remove all configured memory zones for the target program |
+
 ### Type & Prototype Tools
 
 | Tool | Description |
@@ -203,6 +214,13 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | `set_function_prototype` | Set function signature/prototype |
 | `set_local_variable_type` | Set data type for local variables |
 
+### Binary & Function Mutation Tools
+
+| Tool | Description |
+| ----- | ----------- |
+| `function_lifecycle` | Create, delete, or redefine functions by address/body range |
+| `patch_bytes` | Patch bytes in writable memory with optional dry-run and byte verification |
+
 ### Search Tools
 
 | Tool | Description |
@@ -211,7 +229,7 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 
 ### Async Task Management
 
-Long-running operations (decompilation, structure analysis, field xrefs) execute asynchronously:
+Long-running operations (decompilation, structure analysis, field xrefs, and analysis_tasks/patching workflows) execute asynchronously:
 
 | Tool | Description |
 | ---- | ----------- |
