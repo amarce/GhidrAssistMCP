@@ -62,7 +62,7 @@ public final class PasswordVerifier {
             byte[] expectedHash = Base64.getDecoder().decode(parts[3]);
             byte[] actualHash = deriveKey(candidatePassword.toCharArray(), salt, iterations, expectedHash.length);
             return constantTimeEquals(actualHash, expectedHash);
-        } catch (IllegalArgumentException | NumberFormatException e) {
+        } catch (IllegalArgumentException e) {
             return false;
         }
     }
