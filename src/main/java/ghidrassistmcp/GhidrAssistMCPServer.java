@@ -3,18 +3,29 @@
  */
 package ghidrassistmcp;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiFunction;
 
+import jakarta.servlet.Filter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
-
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ghidra.framework.preferences.Preferences;
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -33,6 +44,11 @@ import ghidrassistmcp.resources.McpResource;
  * This class handles HTTP transport and delegates business logic to McpBackend.
  */
 public class GhidrAssistMCPServer {
+
+    private static final String AUTH_REALM = "GhidrAssistMCP";
+    private static final String AUTH_HEADER_PREFIX = "Basic ";
+    private static final String PREF_BASIC_AUTH_USERNAME = "GhidrAssistMCP.Basic Auth Username";
+    private static final String PREF_BASIC_AUTH_PASSWORD = "GhidrAssistMCP.Basic Auth Password";
     
     private final McpBackend backend;
     private final GhidrAssistMCPProvider provider;
@@ -69,7 +85,7 @@ public class GhidrAssistMCPServer {
             ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
             context.setContextPath("/");
             jettyServer.setHandler(context);
-            
+
             // Create MCP transport provider using custom ObjectMapper that ignores unknown properties
             Msg.info(this, "Creating MCP transport provider");
             ObjectMapper objectMapper = new ObjectMapper();
@@ -77,6 +93,12 @@ public class GhidrAssistMCPServer {
             JacksonMcpJsonMapper mapper = new JacksonMcpJsonMapper(objectMapper);
             String messageEndpoint = "/message";
             String mcpEndpoint = "/mcp";
+
+            String expectedAuthorizationHeader = buildExpectedAuthorizationHeader();
+            FilterHolder authFilterHolder = new FilterHolder(new BasicAuthFilter(expectedAuthorizationHeader));
+            context.addFilter(authFilterHolder, "/sse", null);
+            context.addFilter(authFilterHolder, messageEndpoint, null);
+            context.addFilter(authFilterHolder, "/mcp/*", null);
 
             HttpServletSseServerTransportProvider sseTransportProvider =
                 HttpServletSseServerTransportProvider.builder()
@@ -192,6 +214,14 @@ public class GhidrAssistMCPServer {
         }
     }
     
+    private String buildExpectedAuthorizationHeader() {
+        String username = Preferences.getProperty(PREF_BASIC_AUTH_USERNAME, "mcp");
+        String password = Preferences.getProperty(PREF_BASIC_AUTH_PASSWORD, "mcp");
+        String token = username + ":" + password;
+        String encodedToken = Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
+        return AUTH_HEADER_PREFIX + encodedToken;
+    }
+
     public void stop() throws Exception {
         if (jettyServer != null) {
             jettyServer.stop();
@@ -310,6 +340,30 @@ public class GhidrAssistMCPServer {
 
         } catch (Exception e) {
             Msg.warn(this, "Failed to register MCP resources: " + e.getMessage(), e);
+        }
+    }
+    private static class BasicAuthFilter implements Filter {
+
+        private final String expectedAuthorizationHeader;
+
+        BasicAuthFilter(String expectedAuthorizationHeader) {
+            this.expectedAuthorizationHeader = expectedAuthorizationHeader;
+        }
+
+        @Override
+        public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+                throws java.io.IOException, ServletException {
+            HttpServletRequest httpRequest = (HttpServletRequest) request;
+            HttpServletResponse httpResponse = (HttpServletResponse) response;
+
+            String authorizationHeader = httpRequest.getHeader("Authorization");
+            if (!expectedAuthorizationHeader.equals(authorizationHeader)) {
+                httpResponse.setHeader("WWW-Authenticate", "Basic realm=\"" + AUTH_REALM + "\"");
+                httpResponse.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
+                return;
+            }
+
+            chain.doFilter(request, response);
         }
     }
 }
