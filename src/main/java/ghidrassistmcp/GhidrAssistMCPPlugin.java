@@ -96,12 +96,12 @@ public class GhidrAssistMCPPlugin extends ProgramPlugin {
 	 */
 	public void applyConfiguration(String host, int port, boolean enabled, boolean asyncEnabled,
 			boolean allowDestructiveTools, AuthConfig.AuthMode authMode, String authUsername,
-			String authPassword, String oauthIssuer, String oauthAudience, String oauthClientId,
-			String oauthToken, Map<String, Boolean> toolStates) {
+			String authPassword, String oauthIssuer, String oauthJwksUrl, String oauthAudience,
+			String oauthRequiredScope, Map<String, Boolean> toolStates) {
 		if (manager != null) {
 			manager.applyConfiguration(host, port, enabled, asyncEnabled, allowDestructiveTools,
-				authMode, authUsername, authPassword, oauthIssuer, oauthAudience, oauthClientId,
-				oauthToken, toolStates);
+				authMode, authUsername, authPassword, oauthIssuer, oauthJwksUrl, oauthAudience,
+				oauthRequiredScope, toolStates);
 		}
 	}
 	

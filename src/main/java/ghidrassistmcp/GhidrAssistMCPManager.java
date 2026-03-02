@@ -48,9 +48,9 @@ public class GhidrAssistMCPManager {
     private String authUsername = AuthConfig.DEFAULT_BASIC_USERNAME;
     private String authPasswordHash = "";
     private String oauthIssuer = "";
+    private String oauthJwksUrl = "";
     private String oauthAudience = "";
-    private String oauthClientId = "";
-    private String oauthTokenHash = "";
+    private String oauthRequiredScope = "";
 
     /**
      * Private constructor for singleton pattern.
@@ -320,8 +320,8 @@ public class GhidrAssistMCPManager {
     public void applyConfiguration(String host, int port, boolean enabled, boolean asyncEnabled,
                                    boolean allowDestructiveTools, AuthConfig.AuthMode newAuthMode,
                                    String newAuthUsername, String newAuthPassword,
-                                   String newOauthIssuer, String newOauthAudience, String newOauthClientId,
-                                   String newOauthToken,
+                                   String newOauthIssuer, String newOauthJwksUrl, String newOauthAudience,
+                                   String newOauthRequiredScope,
                                    java.util.Map<String, Boolean> toolStates) {
         if (provider != null) {
             provider.logMessage("Applying configuration: " + host + ":" + port + " enabled=" + enabled +
@@ -346,20 +346,20 @@ public class GhidrAssistMCPManager {
         String normalizedAuthUsername = newAuthUsername != null ? newAuthUsername : "";
         String normalizedAuthPasswordHash = AuthConfig.chooseHashForSave(newAuthPassword, authPasswordHash);
         String normalizedOauthIssuer = newOauthIssuer != null ? newOauthIssuer : "";
+        String normalizedOauthJwksUrl = newOauthJwksUrl != null ? newOauthJwksUrl : "";
         String normalizedOauthAudience = newOauthAudience != null ? newOauthAudience : "";
-        String normalizedOauthClientId = newOauthClientId != null ? newOauthClientId : "";
-        String normalizedOauthTokenHash = AuthConfig.chooseHashForSave(newOauthToken, oauthTokenHash);
+        String normalizedOauthRequiredScope = newOauthRequiredScope != null ? newOauthRequiredScope : "";
         if (normalizedAuthMode != authMode || !normalizedAuthUsername.equals(authUsername) ||
             !normalizedAuthPasswordHash.equals(authPasswordHash) || !normalizedOauthIssuer.equals(oauthIssuer) ||
-            !normalizedOauthAudience.equals(oauthAudience) || !normalizedOauthClientId.equals(oauthClientId) ||
-            !normalizedOauthTokenHash.equals(oauthTokenHash)) {
+            !normalizedOauthJwksUrl.equals(oauthJwksUrl) || !normalizedOauthAudience.equals(oauthAudience) ||
+            !normalizedOauthRequiredScope.equals(oauthRequiredScope)) {
             authMode = normalizedAuthMode;
             authUsername = normalizedAuthUsername;
             authPasswordHash = normalizedAuthPasswordHash;
             oauthIssuer = normalizedOauthIssuer;
+            oauthJwksUrl = normalizedOauthJwksUrl;
             oauthAudience = normalizedOauthAudience;
-            oauthClientId = normalizedOauthClientId;
-            oauthTokenHash = normalizedOauthTokenHash;
+            oauthRequiredScope = normalizedOauthRequiredScope;
             needsRestart = true;
         }
 
@@ -417,18 +417,13 @@ public class GhidrAssistMCPManager {
         authUsername = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_USERNAME_SETTING), AuthConfig.DEFAULT_BASIC_USERNAME);
         authPasswordHash = AuthConfig.resolveBasicPasswordHash();
         oauthIssuer = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_ISSUER_SETTING), "");
+        oauthJwksUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_JWKS_URL_SETTING), "");
         oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
-        oauthClientId = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_CLIENT_ID_SETTING), "");
-        oauthTokenHash = AuthConfig.resolveOauthTokenHash();
+        oauthRequiredScope = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_REQUIRED_SCOPE_SETTING), "");
 
         String legacyPlaintextPassword = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_PASSWORD_SETTING), "");
         if (authPasswordHash.isEmpty() && !legacyPlaintextPassword.isEmpty()) {
             authPasswordHash = PasswordVerifier.hashPassword(legacyPlaintextPassword);
-        }
-
-        String legacyOauthToken = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_BEARER_TOKEN_SETTING), "");
-        if (oauthTokenHash.isEmpty() && !legacyOauthToken.isEmpty()) {
-            oauthTokenHash = PasswordVerifier.hashPassword(legacyOauthToken);
         }
 
         try {
@@ -477,7 +472,7 @@ public class GhidrAssistMCPManager {
 
         try {
             server = new GhidrAssistMCPServer(currentHost, currentPort, backend, provider, authMode, authUsername,
-                authPasswordHash, oauthIssuer, oauthAudience, oauthClientId, oauthTokenHash);
+                authPasswordHash, oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope);
             server.start();
             if (provider != null) {
                 provider.logSession("Server started on " + currentHost + ":" + currentPort);
