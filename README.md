@@ -96,8 +96,15 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
    - **Auth Mode**:
      - `none`: no authentication (recommended only for trusted local/dev setups)
      - `basic`: HTTP Basic auth with username/password
-     - `oauth`: Bearer token flow with issuer/audience/client metadata
+     - `oauth`: JWT Bearer token validation for an external authorization server
      - Note: Some clients (including OpenAI-hosted tools) require OAuth for authenticated MCP servers.
+
+3. **OAuth mode fields are resource-server validation settings**:
+   - **Issuer**: expected `iss` claim and authorization server identifier.
+   - **JWKS URL**: signing keys endpoint used to verify token signatures (optional if discoverable from issuer metadata).
+   - **Audience**: expected `aud` claim value.
+   - **Required Scope** (optional): required scope value in token `scope`/`scp` claim.
+   - These are **not** OAuth client credentials (no client id/client secret exchange is performed by this plugin).
 
 ### OpenAI MCP Compatibility Guidance
 
@@ -108,7 +115,7 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
 
 - **Symptom**: Your client (including OpenAI-hosted tools) says **"OAuth required"** even when you expect mixed-mode behavior.
 - **Cause**: The MCP server is configured for **Basic auth**, which leads to **Basic Auth incompatibility** with OAuth-only client expectations.
-- **Resolution**: Switch server auth to **OAuth mode** (once implemented) or disable auth for trusted local use.
+- **Resolution**: Switch server auth to **OAuth mode** and provide resource-server JWT validation settings (issuer/JWKS/audience/scope), or disable auth for trusted local use.
 
 ### Tool Management
 
