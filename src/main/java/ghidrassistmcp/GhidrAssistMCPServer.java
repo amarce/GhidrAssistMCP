@@ -54,7 +54,7 @@ public class GhidrAssistMCPServer {
     private final int port;
     private final boolean authEnabled;
     private final String authUsername;
-    private final String authPassword;
+    private final String authPasswordHash;
     
     public GhidrAssistMCPServer(String host, int port, McpBackend backend) {
         this(host, port, backend, null, false, "", "");
@@ -65,14 +65,14 @@ public class GhidrAssistMCPServer {
     }
 
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider,
-                                boolean authEnabled, String authUsername, String authPassword) {
+                                boolean authEnabled, String authUsername, String authPasswordHash) {
         this.host = host;
         this.port = port;
         this.backend = backend;
         this.provider = provider;
         this.authEnabled = authEnabled;
         this.authUsername = authUsername != null ? authUsername : "";
-        this.authPassword = authPassword != null ? authPassword : "";
+        this.authPasswordHash = authPasswordHash != null ? authPasswordHash : "";
     }
     
     public void start() throws Exception {
@@ -103,8 +103,7 @@ public class GhidrAssistMCPServer {
             String mcpEndpoint = "/mcp";
 
             if (authEnabled) {
-                String expectedAuthorizationHeader = buildExpectedAuthorizationHeader();
-                FilterHolder authFilterHolder = new FilterHolder(new BasicAuthFilter(expectedAuthorizationHeader));
+                FilterHolder authFilterHolder = new FilterHolder(new BasicAuthFilter(authUsername, authPasswordHash));
                 context.addFilter(authFilterHolder, "/sse", null);
                 context.addFilter(authFilterHolder, messageEndpoint, null);
                 context.addFilter(authFilterHolder, "/mcp/*", null);
@@ -225,12 +224,6 @@ public class GhidrAssistMCPServer {
         }
     }
     
-    private String buildExpectedAuthorizationHeader() {
-        String token = authUsername + ":" + authPassword;
-        String encodedToken = Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
-        return AUTH_HEADER_PREFIX + encodedToken;
-    }
-
     public void stop() throws Exception {
         if (jettyServer != null) {
             jettyServer.stop();
@@ -353,10 +346,12 @@ public class GhidrAssistMCPServer {
     }
     private static class BasicAuthFilter implements Filter {
 
-        private final String expectedAuthorizationHeader;
+        private final String expectedUsername;
+        private final String expectedPasswordHash;
 
-        BasicAuthFilter(String expectedAuthorizationHeader) {
-            this.expectedAuthorizationHeader = expectedAuthorizationHeader;
+        BasicAuthFilter(String expectedUsername, String expectedPasswordHash) {
+            this.expectedUsername = expectedUsername != null ? expectedUsername : "";
+            this.expectedPasswordHash = expectedPasswordHash != null ? expectedPasswordHash : "";
         }
 
         @Override
@@ -366,13 +361,42 @@ public class GhidrAssistMCPServer {
             HttpServletResponse httpResponse = (HttpServletResponse) response;
 
             String authorizationHeader = httpRequest.getHeader("Authorization");
-            if (!expectedAuthorizationHeader.equals(authorizationHeader)) {
+            if (!isAuthorized(authorizationHeader)) {
                 httpResponse.setHeader("WWW-Authenticate", "Basic realm=\"" + AUTH_REALM + "\"");
                 httpResponse.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
                 return;
             }
 
             chain.doFilter(request, response);
+        }
+
+        private boolean isAuthorized(String authorizationHeader) {
+            if (authorizationHeader == null || !authorizationHeader.startsWith(AUTH_HEADER_PREFIX)) {
+                return false;
+            }
+
+            String encodedCredentials = authorizationHeader.substring(AUTH_HEADER_PREFIX.length());
+            byte[] decoded;
+            try {
+                decoded = Base64.getDecoder().decode(encodedCredentials);
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
+
+            String credentials = new String(decoded, StandardCharsets.UTF_8);
+            int separatorIndex = credentials.indexOf(':');
+            if (separatorIndex < 0) {
+                return false;
+            }
+
+            String suppliedUsername = credentials.substring(0, separatorIndex);
+            String suppliedPassword = credentials.substring(separatorIndex + 1);
+
+            boolean usernameMatches = PasswordVerifier.constantTimeEquals(
+                suppliedUsername.getBytes(StandardCharsets.UTF_8),
+                expectedUsername.getBytes(StandardCharsets.UTF_8));
+            boolean passwordMatches = PasswordVerifier.verifyPassword(suppliedPassword, expectedPasswordHash);
+            return usernameMatches && passwordMatches;
         }
     }
 }
