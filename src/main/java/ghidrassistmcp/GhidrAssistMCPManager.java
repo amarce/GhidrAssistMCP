@@ -416,10 +416,7 @@ public class GhidrAssistMCPManager {
             Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.AUTH_MODE_SETTING), "none"));
         authUsername = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_USERNAME_SETTING), AuthConfig.DEFAULT_BASIC_USERNAME);
         authPasswordHash = AuthConfig.resolveBasicPasswordHash();
-        oauthIssuer = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_ISSUER_SETTING), "");
-        oauthJwksUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_JWKS_URL_SETTING), "");
-        oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
-        oauthRequiredScope = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_REQUIRED_SCOPE_SETTING), "");
+        loadOAuthSettings();
 
         String legacyPlaintextPassword = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_PASSWORD_SETTING), "");
         if (authPasswordHash.isEmpty() && !legacyPlaintextPassword.isEmpty()) {
@@ -452,6 +449,19 @@ public class GhidrAssistMCPManager {
         if (provider != null) {
             provider.logMessage("Loaded configuration: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools + " auth_mode=" + authMode.persistedValue());
         }
+    }
+
+    /**
+     * Load OAuth settings from the current AuthConfig preference keys.
+     *
+     * Legacy OAuth client/token keys are intentionally not loaded here because the manager now
+     * relies on issuer/JWKS/audience/scope based validation.
+     */
+    private void loadOAuthSettings() {
+        oauthIssuer = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_ISSUER_SETTING), "");
+        oauthJwksUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_JWKS_URL_SETTING), "");
+        oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
+        oauthRequiredScope = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_REQUIRED_SCOPE_SETTING), "");
     }
 
     /**
