@@ -35,9 +35,13 @@ import ghidrassistmcp.tools.AnalysisTaskTool;
 import ghidrassistmcp.tools.BookmarksTool;
 import ghidrassistmcp.tools.CancelTaskTool;
 import ghidrassistmcp.tools.ClassTool;
+import ghidrassistmcp.tools.ClearCodeTool;
+import ghidrassistmcp.tools.CreateFunctionAtTool;
 import ghidrassistmcp.tools.DeleteDataTypeTool;
+import ghidrassistmcp.tools.AssembleAtTool;
 import ghidrassistmcp.tools.FunctionLifecycleTool;
 import ghidrassistmcp.tools.GetBasicBlocksTool;
+import ghidrassistmcp.tools.GetBytesTool;
 import ghidrassistmcp.tools.GetCallGraphTool;
 import ghidrassistmcp.tools.GetCodeTool;
 import ghidrassistmcp.tools.GetCurrentAddressTool;
@@ -61,6 +65,7 @@ import ghidrassistmcp.tools.PatchBytesTool;
 import ghidrassistmcp.tools.ProgramInfoTool;
 import ghidrassistmcp.tools.RenameSymbolBatchTool;
 import ghidrassistmcp.tools.RenameSymbolTool;
+import ghidrassistmcp.tools.ReanalyzeRangeTool;
 import ghidrassistmcp.tools.SearchBytesTool;
 import ghidrassistmcp.tools.SetCommentTool;
 import ghidrassistmcp.tools.SetDataTypeTool;
@@ -128,6 +133,11 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new AnalysisTaskTool());
         registerTool(new FunctionLifecycleTool());
         registerTool(new PatchBytesTool());
+        registerTool(new AssembleAtTool());
+        registerTool(new ClearCodeTool());
+        registerTool(new CreateFunctionAtTool());
+        registerTool(new ReanalyzeRangeTool());
+        registerTool(new GetBytesTool());
 
         // Register async task management tools
         registerTool(new GetTaskStatusTool());

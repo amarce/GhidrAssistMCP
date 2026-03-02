@@ -64,6 +64,10 @@ public class PatchBytesTool implements McpTool {
                     "type", "string",
                     "description", "Patch bytes as hex string (e.g. '90 90 C3' or '9090C3')"
                 ),
+                "bytes_hex", Map.of(
+                    "type", "string",
+                    "description", "Alias for bytes: exact bytes as hex string"
+                ),
                 "byte_values", Map.of(
                     "type", "array",
                     "items", Map.of("type", "integer"),
@@ -226,6 +230,9 @@ public class PatchBytesTool implements McpTool {
 
     private byte[] resolvePatchBytes(Map<String, Object> arguments) {
         String bytesHex = getString(arguments, "bytes");
+        if (bytesHex == null) {
+            bytesHex = getString(arguments, "bytes_hex");
+        }
         Object valuesObj = arguments.get("byte_values");
 
         if (bytesHex != null && valuesObj != null) {
