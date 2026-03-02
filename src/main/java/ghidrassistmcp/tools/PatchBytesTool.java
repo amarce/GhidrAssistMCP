@@ -37,6 +37,11 @@ public class PatchBytesTool implements McpTool {
         return false;
     }
 
+
+    @Override
+    public boolean supportsAsync() {
+        return true;
+    }
     @Override
     public String getName() {
         return "patch_bytes";

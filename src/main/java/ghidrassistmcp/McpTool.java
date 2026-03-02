@@ -93,6 +93,15 @@ public interface McpTool {
         return false;
     }
 
+    /**
+     * Indicates whether the tool can be wrapped in a background task when callers
+     * explicitly request async execution.
+     * Default: false
+     */
+    default boolean supportsAsync() {
+        return false;
+    }
+
     // ==================== Caching Support ====================
 
     /**

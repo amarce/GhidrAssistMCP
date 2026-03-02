@@ -38,6 +38,11 @@ public class SetFunctionPrototypeTool implements McpTool {
         return true;
     }
 
+
+    @Override
+    public boolean supportsAsync() {
+        return true;
+    }
     @Override
     public String getName() {
         return "set_function_prototype";

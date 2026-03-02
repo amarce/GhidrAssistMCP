@@ -38,6 +38,11 @@ public class FunctionLifecycleTool implements McpTool {
         return false;
     }
 
+
+    @Override
+    public boolean supportsAsync() {
+        return true;
+    }
     @Override
     public String getName() {
         return "function_lifecycle";

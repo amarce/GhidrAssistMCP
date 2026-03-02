@@ -57,15 +57,17 @@ public class McpTaskManager {
      *
      * @param toolName The name of the tool being executed
      * @param arguments The tool arguments
+     * @param operationMetadata Metadata describing the operation for auditability
      * @param taskExecutor A supplier that executes the tool and returns the result
      * @return The created task
      */
     public McpTask submitTask(String toolName, Map<String, Object> arguments,
+                               Map<String, Object> operationMetadata,
                                Supplier<McpSchema.CallToolResult> taskExecutor) {
         // Clean up old tasks before creating new ones
         cleanupOldTasks();
 
-        McpTask task = new McpTask(toolName, arguments);
+        McpTask task = new McpTask(toolName, arguments, operationMetadata);
         tasks.put(task.getTaskId(), task);
 
         Future<?> future = executor.submit(() -> {

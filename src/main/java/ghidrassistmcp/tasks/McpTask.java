@@ -4,6 +4,7 @@
 package ghidrassistmcp.tasks;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,6 +29,7 @@ public class McpTask {
     private final String taskId;
     private final String toolName;
     private final Map<String, Object> arguments;
+    private final Map<String, Object> operationMetadata;
     private final Instant createdAt;
     private volatile Status status;
     private volatile Instant startedAt;
@@ -40,10 +42,11 @@ public class McpTask {
     /**
      * Create a new task
      */
-    public McpTask(String toolName, Map<String, Object> arguments) {
+    public McpTask(String toolName, Map<String, Object> arguments, Map<String, Object> operationMetadata) {
         this.taskId = UUID.randomUUID().toString();
         this.toolName = toolName;
         this.arguments = arguments;
+        this.operationMetadata = operationMetadata != null ? Map.copyOf(operationMetadata) : Collections.emptyMap();
         this.createdAt = Instant.now();
         this.status = Status.PENDING;
         this.progressPercent = 0;
@@ -66,6 +69,10 @@ public class McpTask {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Map<String, Object> getOperationMetadata() {
+        return operationMetadata;
     }
 
     public Status getStatus() {
@@ -181,6 +188,9 @@ public class McpTask {
         StringBuilder sb = new StringBuilder();
         sb.append("Task ID: ").append(taskId).append("\n");
         sb.append("Tool: ").append(toolName).append("\n");
+        if (!operationMetadata.isEmpty()) {
+            sb.append("Operation Metadata: ").append(operationMetadata).append("\n");
+        }
         sb.append("Status: ").append(status).append("\n");
         sb.append("Progress: ").append(progressPercent).append("% - ").append(progressMessage).append("\n");
         sb.append("Created: ").append(createdAt).append("\n");
