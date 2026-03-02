@@ -31,6 +31,7 @@ import ghidrassistmcp.resources.ProgramInfoResource;
 import ghidrassistmcp.resources.StringsResource;
 import ghidrassistmcp.tasks.McpTask;
 import ghidrassistmcp.tasks.McpTaskManager;
+import ghidrassistmcp.tools.AnalysisTaskTool;
 import ghidrassistmcp.tools.BookmarksTool;
 import ghidrassistmcp.tools.CancelTaskTool;
 import ghidrassistmcp.tools.ClassTool;
@@ -76,6 +77,7 @@ import io.modelcontextprotocol.spec.McpSchema;
 public class GhidrAssistMCPBackend implements McpBackend {
 
     private final Map<String, McpTool> tools = new ConcurrentHashMap<>();
+    private final Map<String, List<MemoryZone>> customMemoryZones = new ConcurrentHashMap<>();
     private final Set<String> asyncCapableTools = ConcurrentHashMap.newKeySet();
     private final Map<String, Boolean> toolEnabledStates = new ConcurrentHashMap<>();
     private final List<McpEventListener> eventListeners = new CopyOnWriteArrayList<>();
@@ -123,6 +125,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new SetFunctionPrototypeTool());
         registerTool(new SetLocalVariableTypeTool());
         registerTool(new SetDataTypeTool());
+        registerTool(new AnalysisTaskTool());
         registerTool(new FunctionLifecycleTool());
         registerTool(new PatchBytesTool());
 
@@ -866,6 +869,59 @@ public class GhidrAssistMCPBackend implements McpBackend {
     public boolean isAllowDestructiveTools() {
         return allowDestructiveTools;
     }
+
+
+    public String runAutoAnalysis(Program program, String reason) {
+        if (program == null) {
+            return "Auto analysis skipped: no program loaded";
+        }
+
+        String context = reason != null ? reason : "unspecified";
+        try {
+            Class<?> aamClass = Class.forName("ghidra.app.plugin.core.analysis.AutoAnalysisManager");
+            java.lang.reflect.Method getManager = aamClass.getMethod("getAnalysisManager", Program.class);
+            Object manager = getManager.invoke(null, program);
+
+            try {
+                java.lang.reflect.Method startAnalysis = aamClass.getMethod("startAnalysis", ghidra.util.task.TaskMonitor.class);
+                startAnalysis.invoke(manager, ghidra.util.task.TaskMonitor.DUMMY);
+            } catch (NoSuchMethodException noStartAnalysis) {
+                java.lang.reflect.Method analyzeAll = aamClass.getMethod("analyzeAll", ghidra.util.task.TaskMonitor.class);
+                analyzeAll.invoke(manager, ghidra.util.task.TaskMonitor.DUMMY);
+            }
+
+            String message = "Auto analysis completed for '" + program.getName() + "' (reason=" + context + ")";
+            Msg.info(this, message);
+            return message;
+        } catch (Exception e) {
+            String message = "Auto analysis unavailable/failed for '" + program.getName() + "': " + e.getMessage();
+            Msg.warn(this, message);
+            return message;
+        }
+    }
+
+    public void setCustomMemoryZones(Program program, List<MemoryZone> zones) {
+        if (program == null) {
+            return;
+        }
+        customMemoryZones.put(program.getName(), zones != null ? List.copyOf(zones) : List.of());
+    }
+
+    public List<MemoryZone> getCustomMemoryZones(Program program) {
+        if (program == null) {
+            return List.of();
+        }
+        return customMemoryZones.getOrDefault(program.getName(), List.of());
+    }
+
+    public void clearCustomMemoryZones(Program program) {
+        if (program == null) {
+            return;
+        }
+        customMemoryZones.remove(program.getName());
+    }
+
+    public static record MemoryZone(String start, String end, String label) {}
 
     /**
      * Set the enabled state of a tool.

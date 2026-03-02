@@ -4,6 +4,7 @@
  */
 package ghidrassistmcp.tools;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -16,12 +17,14 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.PcodeBlockBasic;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.pcode.PcodeOpAST;
 import ghidra.program.model.symbol.Namespace;
 import ghidra.util.task.TaskMonitor;
+import ghidrassistmcp.GhidrAssistMCPBackend;
 import ghidrassistmcp.McpTool;
 import io.modelcontextprotocol.spec.McpSchema;
 
@@ -39,6 +42,11 @@ public class GetCodeTool implements McpTool {
 
     @Override
     public boolean isCacheable() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsAsync() {
         return true;
     }
 
@@ -69,6 +77,24 @@ public class GetCodeTool implements McpTool {
                     "type", "boolean",
                     "description", "Optional: Only affects format 'pcode' (raw pcode ops vs grouped by basic blocks)",
                     "default", false
+                ),
+                "auto_analyze", Map.of(
+                    "type", "boolean",
+                    "description", "Optional: run auto-analysis before decompilation/disassembly for fresher results",
+                    "default", false
+                ),
+                "memory_zones", Map.of(
+                    "type", "array",
+                    "description", "Optional additional memory zones to include in output context",
+                    "items", Map.of(
+                        "type", "object",
+                        "properties", Map.of(
+                            "start", Map.of("type", "string"),
+                            "end", Map.of("type", "string"),
+                            "label", Map.of("type", "string")
+                        ),
+                        "required", List.of("start", "end")
+                    )
                 )
             ),
             List.of("function", "format"), null, null, null);
@@ -76,6 +102,11 @@ public class GetCodeTool implements McpTool {
 
     @Override
     public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program currentProgram) {
+        return execute(arguments, currentProgram, null);
+    }
+
+    @Override
+    public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program currentProgram, GhidrAssistMCPBackend backend) {
         if (currentProgram == null) {
             return McpSchema.CallToolResult.builder()
                 .addTextContent("No program currently loaded")
@@ -85,6 +116,7 @@ public class GetCodeTool implements McpTool {
         String functionIdentifier = (String) arguments.get("function");
         String format = (String) arguments.get("format");
         boolean raw = Boolean.TRUE.equals(arguments.get("raw"));
+        boolean autoAnalyze = Boolean.TRUE.equals(arguments.get("auto_analyze"));
 
         if (functionIdentifier == null || functionIdentifier.isEmpty()) {
             return McpSchema.CallToolResult.builder()
@@ -105,6 +137,15 @@ public class GetCodeTool implements McpTool {
                 .build();
         }
 
+        if (autoAnalyze && backend != null) {
+            String analysisResult = backend.runAutoAnalysis(currentProgram, "get_code:" + functionIdentifier + ":" + format);
+            if (analysisResult != null && !analysisResult.isEmpty()) {
+                // continue execution; analysis failures are reported in output footer
+                arguments = new java.util.HashMap<>(arguments);
+                arguments.put("_auto_analyze_result", analysisResult);
+            }
+        }
+
         // Find the function
         Function function = findFunction(currentProgram, functionIdentifier);
         if (function == null) {
@@ -113,19 +154,132 @@ public class GetCodeTool implements McpTool {
                 .build();
         }
 
-        // Dispatch to appropriate handler based on format
+        McpSchema.CallToolResult base;
         switch (format) {
             case "decompiler":
-                return getDecompiledCode(currentProgram, function);
+                base = getDecompiledCode(currentProgram, function);
+                break;
             case "disassembly":
-                return getDisassemblyCode(currentProgram, function);
+                base = getDisassemblyCode(currentProgram, function);
+                break;
             case "pcode":
-                return getPcodeRepresentation(currentProgram, function, raw);
+                base = getPcodeRepresentation(currentProgram, function, raw);
+                break;
             default:
-                return McpSchema.CallToolResult.builder()
-                    .addTextContent("Unknown format: " + format)
-                    .build();
+                base = McpSchema.CallToolResult.builder().addTextContent("Unknown format: " + format).build();
         }
+
+        return appendMemoryZoneContext(base, arguments, currentProgram, backend);
+    }
+
+    private McpSchema.CallToolResult appendMemoryZoneContext(McpSchema.CallToolResult base,
+            Map<String, Object> arguments, Program program, GhidrAssistMCPBackend backend) {
+        if (base == null || base.content() == null || base.content().isEmpty() ||
+            !(base.content().get(0) instanceof McpSchema.TextContent first)) {
+            return base;
+        }
+
+        List<GhidrAssistMCPBackend.MemoryZone> zones = new ArrayList<>();
+        if (backend != null) {
+            zones.addAll(backend.getCustomMemoryZones(program));
+        }
+        zones.addAll(parseMemoryZonesArg(arguments, program));
+
+        StringBuilder appendix = new StringBuilder();
+        Object analysis = arguments.get("_auto_analyze_result");
+        if (analysis instanceof String) {
+            appendix.append("\n\n## Auto Analysis\n").append((String) analysis);
+        }
+
+        if (!zones.isEmpty()) {
+            appendix.append("\n\n## Memory Zone Context\n");
+            for (GhidrAssistMCPBackend.MemoryZone zone : zones) {
+                appendix.append("- ").append(zone.label()).append(": ")
+                    .append(zone.start()).append(" -> ").append(zone.end());
+                String bytes = readZoneBytes(program, zone, 96);
+                if (bytes != null) {
+                    appendix.append("\n  bytes: ").append(bytes);
+                }
+                appendix.append("\n");
+            }
+        }
+
+        if (appendix.length() == 0) {
+            return base;
+        }
+
+        return McpSchema.CallToolResult.builder()
+            .addTextContent(first.text() + appendix)
+            .build();
+    }
+
+    private List<GhidrAssistMCPBackend.MemoryZone> parseMemoryZonesArg(Map<String, Object> arguments, Program program) {
+        List<GhidrAssistMCPBackend.MemoryZone> zones = new ArrayList<>();
+        Object memoryZonesObj = arguments.get("memory_zones");
+        if (!(memoryZonesObj instanceof List<?> list)) {
+            return zones;
+        }
+
+        int index = 0;
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> rawMap)) {
+                index++;
+                continue;
+            }
+            Address start = parseAddressFromObject(program, rawMap.get("start"));
+            Address end = parseAddressFromObject(program, rawMap.get("end"));
+            if (start == null || end == null || start.compareTo(end) > 0) {
+                index++;
+                continue;
+            }
+            Object labelObj = rawMap.get("label");
+            String label = labelObj instanceof String && !((String) labelObj).isBlank()
+                ? (String) labelObj : "request_zone_" + index;
+            zones.add(new GhidrAssistMCPBackend.MemoryZone(start.toString(), end.toString(), label));
+            index++;
+        }
+
+        return zones;
+    }
+
+    private Address parseAddressFromObject(Program program, Object value) {
+        if (value instanceof String s) {
+            return program.getAddressFactory().getAddress(s);
+        }
+        return null;
+    }
+
+    private String readZoneBytes(Program program, GhidrAssistMCPBackend.MemoryZone zone, int maxBytes) {
+        Address start = program.getAddressFactory().getAddress(zone.start());
+        Address end = program.getAddressFactory().getAddress(zone.end());
+        if (start == null || end == null || start.compareTo(end) > 0) {
+            return null;
+        }
+
+        long total = end.subtract(start) + 1;
+        int length = (int) Math.min(Math.max(total, 0), maxBytes);
+        if (length <= 0) {
+            return null;
+        }
+
+        byte[] data = new byte[length];
+        try {
+            program.getMemory().getBytes(start, data);
+        } catch (MemoryAccessException e) {
+            return "<unreadable: " + e.getMessage() + ">";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < data.length; i++) {
+            sb.append(String.format("%02X", data[i] & 0xff));
+            if (i < data.length - 1) {
+                sb.append(' ');
+            }
+        }
+        if (total > maxBytes) {
+            sb.append(" ...");
+        }
+        return sb.toString();
     }
 
     /**
@@ -159,13 +313,9 @@ public class GetCodeTool implements McpTool {
             }
 
             return McpSchema.CallToolResult.builder()
-                .addTextContent("Decompiled function " + function.getName() + ":\n\n" + decompiledCode)
+                .addTextContent(decompiledCode)
                 .build();
 
-        } catch (Exception e) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error decompiling function " + function.getName() + ": " + e.getMessage())
-                .build();
         } finally {
             decompiler.dispose();
         }
@@ -176,21 +326,20 @@ public class GetCodeTool implements McpTool {
      */
     private McpSchema.CallToolResult getDisassemblyCode(Program program, Function function) {
         StringBuilder result = new StringBuilder();
-        result.append("Disassembly of function: ").append(function.getName()).append("\n");
-        result.append("Entry Point: ").append(function.getEntryPoint()).append("\n\n");
+        result.append("Disassembly for: ").append(function.getName())
+              .append(" @ ").append(function.getEntryPoint()).append("\n\n");
 
-        // Iterate through instructions in the function
-        InstructionIterator instrIter = program.getListing().getInstructions(function.getBody(), true);
-
+        InstructionIterator instructions = program.getListing().getInstructions(function.getBody(), true);
         int instructionCount = 0;
-        while (instrIter.hasNext()) {
-            Instruction instruction = instrIter.next();
 
-            result.append(instruction.getAddress()).append(": ");
-            result.append(instruction.getMnemonicString());
+        while (instructions.hasNext()) {
+            Instruction instruction = instructions.next();
+            result.append(instruction.getAddress()).append(" ");
+            result.append(String.format("%-8s", instruction.getMnemonicString()));
 
             // Add operands
-            for (int i = 0; i < instruction.getNumOperands(); i++) {
+            int numOperands = instruction.getNumOperands();
+            for (int i = 0; i < numOperands; i++) {
                 if (i == 0) {
                     result.append(" ");
                 } else {
@@ -320,43 +469,78 @@ public class GetCodeTool implements McpTool {
                 String[] namespaceParts = new String[parts.length - 1];
                 System.arraycopy(parts, 0, namespaceParts, 0, parts.length - 1);
 
-                // Search for function with matching name AND namespace
-                for (Function function : program.getFunctionManager().getFunctions(true)) {
-                    if (function.getName().equals(simpleName) &&
-                        matchesNamespaceHierarchy(function, namespaceParts)) {
-                        return function;
-                    }
+                // Search for exact namespace match
+                Function match = findFunctionByQualifiedName(program, simpleName, namespaceParts);
+                if (match != null) {
+                    return match;
                 }
             }
         }
 
         // Fall back to simple name search
-        for (Function function : program.getFunctionManager().getFunctions(true)) {
-            if (function.getName().equals(identifier)) {
-                return function;
+        FunctionIteratorWrapper funcs = new FunctionIteratorWrapper(program.getFunctionManager().getFunctions(true));
+        while (funcs.hasNext()) {
+            Function func = funcs.next();
+            if (func.getName().equals(identifier)) {
+                return func;
+            }
+        }
+
+        return null;
+    }
+
+    private Function findFunctionByQualifiedName(Program program, String functionName, String[] namespaceParts) {
+        FunctionIteratorWrapper funcs = new FunctionIteratorWrapper(program.getFunctionManager().getFunctions(true));
+        while (funcs.hasNext()) {
+            Function func = funcs.next();
+            if (!func.getName().equals(functionName)) {
+                continue;
+            }
+
+            if (namespaceMatches(func.getParentNamespace(), namespaceParts)) {
+                return func;
             }
         }
         return null;
     }
 
-    /**
-     * Check if a function's namespace hierarchy matches the given qualified path.
-     * For example, if qualifiedPath is ["Outer", "Inner"], checks if function is in Inner,
-     * which is in Outer.
-     */
-    private boolean matchesNamespaceHierarchy(Function function, String[] namespaceParts) {
-        Namespace ns = function.getParentNamespace();
-
-        // Walk backwards through the namespace parts
-        for (int i = namespaceParts.length - 1; i >= 0; i--) {
-            if (ns == null || ns.isGlobal()) {
-                return false; // Ran out of namespaces before matching all parts
-            }
-            if (!ns.getName().equals(namespaceParts[i])) {
-                return false; // Namespace name doesn't match
-            }
-            ns = ns.getParentNamespace();
+    private boolean namespaceMatches(Namespace namespace, String[] expectedParts) {
+        if (expectedParts.length == 0) {
+            return namespace == null;
         }
-        return true;
+
+        int index = expectedParts.length - 1;
+        Namespace current = namespace;
+
+        while (index >= 0 && current != null) {
+            String expected = expectedParts[index];
+            String actual = current.getName();
+            if (!expected.equals(actual)) {
+                return false;
+            }
+            current = current.getParentNamespace();
+            index--;
+        }
+
+        return index < 0;
+    }
+
+    /**
+     * Wrapper to avoid directly exposing Ghidra FunctionIterator type in method signatures.
+     */
+    private static class FunctionIteratorWrapper {
+        private final java.util.Iterator<Function> iterator;
+
+        FunctionIteratorWrapper(java.util.Iterator<Function> iterator) {
+            this.iterator = iterator;
+        }
+
+        boolean hasNext() {
+            return iterator.hasNext();
+        }
+
+        Function next() {
+            return iterator.next();
+        }
     }
 }
