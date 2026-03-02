@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 import java.util.function.BiFunction;
 
 import jakarta.servlet.Filter;
@@ -45,34 +46,44 @@ import ghidrassistmcp.resources.McpResource;
 public class GhidrAssistMCPServer {
 
     private static final String AUTH_REALM = "GhidrAssistMCP";
-    private static final String AUTH_HEADER_PREFIX = "Basic ";
+    private static final String BASIC_AUTH_HEADER_PREFIX = "Basic ";
+    private static final String BEARER_AUTH_HEADER_PREFIX = "Bearer ";
     
     private final McpBackend backend;
     private final GhidrAssistMCPProvider provider;
     private Server jettyServer;
     private final String host;
     private final int port;
-    private final boolean authEnabled;
+    private final AuthConfig.AuthMode authMode;
     private final String authUsername;
     private final String authPasswordHash;
+    private final String oauthIssuer;
+    private final String oauthAudience;
+    private final String oauthClientId;
+    private final String oauthTokenHash;
     
     public GhidrAssistMCPServer(String host, int port, McpBackend backend) {
-        this(host, port, backend, null, false, "", "");
+        this(host, port, backend, null, AuthConfig.AuthMode.NONE, "", "", "", "", "", "");
     }
 
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider) {
-        this(host, port, backend, provider, false, "", "");
+        this(host, port, backend, provider, AuthConfig.AuthMode.NONE, "", "", "", "", "", "");
     }
 
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider,
-                                boolean authEnabled, String authUsername, String authPasswordHash) {
+                                AuthConfig.AuthMode authMode, String authUsername, String authPasswordHash,
+                                String oauthIssuer, String oauthAudience, String oauthClientId, String oauthTokenHash) {
         this.host = host;
         this.port = port;
         this.backend = backend;
         this.provider = provider;
-        this.authEnabled = authEnabled;
+        this.authMode = authMode != null ? authMode : AuthConfig.AuthMode.NONE;
         this.authUsername = authUsername != null ? authUsername : "";
         this.authPasswordHash = authPasswordHash != null ? authPasswordHash : "";
+        this.oauthIssuer = oauthIssuer != null ? oauthIssuer : "";
+        this.oauthAudience = oauthAudience != null ? oauthAudience : "";
+        this.oauthClientId = oauthClientId != null ? oauthClientId : "";
+        this.oauthTokenHash = oauthTokenHash != null ? oauthTokenHash : "";
     }
     
     public void start() throws Exception {
@@ -102,12 +113,13 @@ public class GhidrAssistMCPServer {
             String messageEndpoint = "/message";
             String mcpEndpoint = "/mcp";
 
-            if (authEnabled) {
-                FilterHolder authFilterHolder = new FilterHolder(new BasicAuthFilter(authUsername, authPasswordHash));
+            AuthStrategy authStrategy = createAuthStrategy();
+            if (!(authStrategy instanceof NoAuthStrategy)) {
+                FilterHolder authFilterHolder = new FilterHolder(new AuthFilter(authStrategy));
                 context.addFilter(authFilterHolder, "/sse", null);
                 context.addFilter(authFilterHolder, messageEndpoint, null);
                 context.addFilter(authFilterHolder, "/mcp/*", null);
-                Msg.info(this, "Basic auth enabled for MCP endpoints");
+                Msg.info(this, "Auth mode " + authMode.persistedValue() + " enabled for MCP endpoints");
             }
 
             HttpServletSseServerTransportProvider sseTransportProvider =
@@ -222,6 +234,17 @@ public class GhidrAssistMCPServer {
             Msg.error(this, "Exception during MCP Server startup: " + e.getMessage(), e);
             throw e;
         }
+    }
+
+    private AuthStrategy createAuthStrategy() {
+        if (authMode == AuthConfig.AuthMode.BASIC) {
+            return new BasicAuthStrategy(authUsername, authPasswordHash);
+        }
+        if (authMode == AuthConfig.AuthMode.OAUTH) {
+            return new BearerAuthStrategy(oauthIssuer, oauthAudience, oauthClientId,
+                new StaticBearerTokenValidator(oauthTokenHash));
+        }
+        return new NoAuthStrategy();
     }
     
     public void stop() throws Exception {
@@ -344,14 +367,12 @@ public class GhidrAssistMCPServer {
             Msg.warn(this, "Failed to register MCP resources: " + e.getMessage(), e);
         }
     }
-    private static class BasicAuthFilter implements Filter {
+    private static class AuthFilter implements Filter {
 
-        private final String expectedUsername;
-        private final String expectedPasswordHash;
+        private final AuthStrategy authStrategy;
 
-        BasicAuthFilter(String expectedUsername, String expectedPasswordHash) {
-            this.expectedUsername = expectedUsername != null ? expectedUsername : "";
-            this.expectedPasswordHash = expectedPasswordHash != null ? expectedPasswordHash : "";
+        AuthFilter(AuthStrategy authStrategy) {
+            this.authStrategy = authStrategy;
         }
 
         @Override
@@ -360,22 +381,52 @@ public class GhidrAssistMCPServer {
             HttpServletRequest httpRequest = (HttpServletRequest) request;
             HttpServletResponse httpResponse = (HttpServletResponse) response;
 
-            String authorizationHeader = httpRequest.getHeader("Authorization");
-            if (!isAuthorized(authorizationHeader)) {
-                httpResponse.setHeader("WWW-Authenticate", "Basic realm=\"" + AUTH_REALM + "\"");
-                httpResponse.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
+            if (!authStrategy.authorize(httpRequest, httpResponse)) {
                 return;
             }
 
             chain.doFilter(request, response);
         }
+    }
+
+    private interface AuthStrategy {
+        boolean authorize(HttpServletRequest request, HttpServletResponse response) throws java.io.IOException;
+    }
+
+    private static class NoAuthStrategy implements AuthStrategy {
+        @Override
+        public boolean authorize(HttpServletRequest request, HttpServletResponse response) {
+            return true;
+        }
+    }
+
+    private static class BasicAuthStrategy implements AuthStrategy {
+
+        private final String expectedUsername;
+        private final String expectedPasswordHash;
+
+        BasicAuthStrategy(String expectedUsername, String expectedPasswordHash) {
+            this.expectedUsername = expectedUsername != null ? expectedUsername : "";
+            this.expectedPasswordHash = expectedPasswordHash != null ? expectedPasswordHash : "";
+        }
+
+        @Override
+        public boolean authorize(HttpServletRequest request, HttpServletResponse response) throws java.io.IOException {
+            String authorizationHeader = request.getHeader("Authorization");
+            if (!isAuthorized(authorizationHeader)) {
+                response.setHeader("WWW-Authenticate", "Basic realm=\"" + AUTH_REALM + "\"");
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
+                return false;
+            }
+            return true;
+        }
 
         private boolean isAuthorized(String authorizationHeader) {
-            if (authorizationHeader == null || !authorizationHeader.startsWith(AUTH_HEADER_PREFIX)) {
+            if (authorizationHeader == null || !authorizationHeader.startsWith(BASIC_AUTH_HEADER_PREFIX)) {
                 return false;
             }
 
-            String encodedCredentials = authorizationHeader.substring(AUTH_HEADER_PREFIX.length());
+            String encodedCredentials = authorizationHeader.substring(BASIC_AUTH_HEADER_PREFIX.length());
             byte[] decoded;
             try {
                 decoded = Base64.getDecoder().decode(encodedCredentials);
@@ -397,6 +448,80 @@ public class GhidrAssistMCPServer {
                 expectedUsername.getBytes(StandardCharsets.UTF_8));
             boolean passwordMatches = PasswordVerifier.verifyPassword(suppliedPassword, expectedPasswordHash);
             return usernameMatches && passwordMatches;
+        }
+    }
+
+    private interface BearerTokenValidator {
+        boolean validate(String token, HttpServletRequest request);
+    }
+
+    private static class StaticBearerTokenValidator implements BearerTokenValidator {
+        private final String expectedTokenHash;
+
+        StaticBearerTokenValidator(String expectedTokenHash) {
+            this.expectedTokenHash = expectedTokenHash != null ? expectedTokenHash : "";
+        }
+
+        @Override
+        public boolean validate(String token, HttpServletRequest request) {
+            return !expectedTokenHash.isEmpty() && PasswordVerifier.verifyPassword(token, expectedTokenHash);
+        }
+    }
+
+    private static class BearerAuthStrategy implements AuthStrategy {
+
+        private final String issuer;
+        private final String audience;
+        private final String clientId;
+        private final BearerTokenValidator tokenValidator;
+
+        BearerAuthStrategy(String issuer, String audience, String clientId, BearerTokenValidator tokenValidator) {
+            this.issuer = issuer != null ? issuer : "";
+            this.audience = audience != null ? audience : "";
+            this.clientId = clientId != null ? clientId : "";
+            this.tokenValidator = tokenValidator;
+        }
+
+        @Override
+        public boolean authorize(HttpServletRequest request, HttpServletResponse response) throws java.io.IOException {
+            String authorizationHeader = request.getHeader("Authorization");
+            if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_AUTH_HEADER_PREFIX)) {
+                sendBearerChallenge(response, "invalid_request", "Missing Bearer token");
+                return false;
+            }
+
+            String token = authorizationHeader.substring(BEARER_AUTH_HEADER_PREFIX.length()).trim();
+            if (token.isEmpty()) {
+                sendBearerChallenge(response, "invalid_request", "Missing Bearer token");
+                return false;
+            }
+
+            if (!tokenValidator.validate(token, request)) {
+                sendBearerChallenge(response, "invalid_token", "Invalid access token");
+                return false;
+            }
+
+            return true;
+        }
+
+        private void sendBearerChallenge(HttpServletResponse response, String errorCode, String description)
+                throws java.io.IOException {
+            StringJoiner challenge = new StringJoiner(", ", "Bearer ", "");
+            challenge.add("realm=\"" + AUTH_REALM + "\"");
+            challenge.add("error=\"" + errorCode + "\"");
+            challenge.add("error_description=\"" + description + "\"");
+            if (!issuer.isEmpty()) {
+                challenge.add("issuer=\"" + issuer + "\"");
+            }
+            if (!audience.isEmpty()) {
+                challenge.add("audience=\"" + audience + "\"");
+            }
+            if (!clientId.isEmpty()) {
+                challenge.add("client_id=\"" + clientId + "\"");
+            }
+
+            response.setHeader("WWW-Authenticate", challenge.toString());
+            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
         }
     }
 }

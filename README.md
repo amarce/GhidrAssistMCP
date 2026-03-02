@@ -93,6 +93,15 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
    - **Host**: Default is `localhost`
    - **Port**: Default is `8080`
    - **Enable/Disable**: Toggle the MCP server on/off
+   - **Auth Mode**:
+     - `none`: no authentication (recommended only for trusted local/dev setups)
+     - `basic`: HTTP Basic auth with username/password
+     - `oauth`: Bearer token flow with issuer/audience/client metadata
+
+### OpenAI MCP Compatibility Guidance
+
+- Use **`none`** for local/dev workflows where your MCP server is only reachable in a trusted environment.
+- Use **`oauth`** for OpenAI-hosted MCP connections so clients can authenticate with `Authorization: Bearer <token>`.
 
 ### Tool Management
 
