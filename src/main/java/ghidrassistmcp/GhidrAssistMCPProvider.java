@@ -40,6 +40,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private static final String PORT_SETTING = "Server Port";
     private static final String ENABLED_SETTING = "Server Enabled";
     private static final String ASYNC_ENABLED_SETTING = "Async Execution Enabled";
+    private static final String ALLOW_DESTRUCTIVE_TOOLS_SETTING = "Allow Destructive Tools";
     private static final String TOOL_PREFIX = "Tool.";
     
     // Default values
@@ -47,6 +48,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private static final int DEFAULT_PORT = 8080;
     private static final boolean DEFAULT_ENABLED = true;
     private static final boolean DEFAULT_ASYNC_ENABLED = true;
+    private static final boolean DEFAULT_ALLOW_DESTRUCTIVE_TOOLS = false;
     
     private final PluginTool tool;
     private final GhidrAssistMCPPlugin plugin;
@@ -57,6 +59,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private JSpinner portSpinner;
     private JCheckBox enabledCheckBox;
     private JCheckBox asyncEnabledCheckBox;
+    private JCheckBox allowDestructiveToolsCheckBox;
     private JTable toolsTable;
     private DefaultTableModel toolsTableModel;
     private JButton saveButton;
@@ -132,6 +135,12 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         asyncEnabledCheckBox.setToolTipText("When enabled, long-running tools execute asynchronously and return a task ID. When disabled, all tools execute synchronously.");
         serverPanel.add(asyncEnabledCheckBox, gbc);
         
+        // Destructive policy setting
+        gbc.gridy = 4;
+        allowDestructiveToolsCheckBox = new JCheckBox("Allow destructive tools globally", DEFAULT_ALLOW_DESTRUCTIVE_TOOLS);
+        allowDestructiveToolsCheckBox.setToolTipText("When disabled, destructive tool calls require confirm_destructive=true per request.");
+        serverPanel.add(allowDestructiveToolsCheckBox, gbc);
+
         panel.add(serverPanel, BorderLayout.NORTH);
         
         // Tools panel
@@ -274,14 +283,17 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         String portStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + PORT_SETTING, String.valueOf(DEFAULT_PORT));
         String enabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ENABLED_SETTING, String.valueOf(DEFAULT_ENABLED));
         String asyncEnabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ASYNC_ENABLED_SETTING, String.valueOf(DEFAULT_ASYNC_ENABLED));
+        String allowDestructiveStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(DEFAULT_ALLOW_DESTRUCTIVE_TOOLS));
 
         int port = DEFAULT_PORT;
         boolean enabled = DEFAULT_ENABLED;
         boolean asyncEnabled = DEFAULT_ASYNC_ENABLED;
+        boolean allowDestructiveTools = DEFAULT_ALLOW_DESTRUCTIVE_TOOLS;
         try {
             port = Integer.parseInt(portStr);
             enabled = Boolean.parseBoolean(enabledStr);
             asyncEnabled = Boolean.parseBoolean(asyncEnabledStr);
+            allowDestructiveTools = Boolean.parseBoolean(allowDestructiveStr);
         } catch (NumberFormatException e) {
             logMessage("Warning: Failed to parse preferences, using defaults");
         }
@@ -290,6 +302,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         portSpinner.setValue(port);
         enabledCheckBox.setSelected(enabled);
         asyncEnabledCheckBox.setSelected(asyncEnabled);
+        allowDestructiveToolsCheckBox.setSelected(allowDestructiveTools);
 
         // Load tool enabled states from tool options
         Options options = tool.getOptions(SETTINGS_CATEGORY);
@@ -322,6 +335,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         Preferences.setProperty(SETTINGS_CATEGORY + "." + PORT_SETTING, String.valueOf(portSpinner.getValue()));
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ENABLED_SETTING, String.valueOf(enabledCheckBox.isSelected()));
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ASYNC_ENABLED_SETTING, String.valueOf(asyncEnabledCheckBox.isSelected()));
+        Preferences.setProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(allowDestructiveToolsCheckBox.isSelected()));
 
         // Force preferences to be saved to disk
         Preferences.store();
@@ -342,7 +356,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         // Apply changes to the plugin
         plugin.applyConfiguration(hostField.getText(), (Integer) portSpinner.getValue(),
                                 enabledCheckBox.isSelected(), asyncEnabledCheckBox.isSelected(),
-                                toolEnabledStates);
+                                allowDestructiveToolsCheckBox.isSelected(), toolEnabledStates);
     }
     
     public void logMessage(String message) {
@@ -401,6 +415,10 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     
     public boolean isAsyncEnabled() {
         return asyncEnabledCheckBox.isSelected();
+    }
+
+    public boolean isAllowDestructiveToolsEnabled() {
+        return allowDestructiveToolsCheckBox.isSelected();
     }
     
     public Map<String, Boolean> getToolEnabledStates() {
