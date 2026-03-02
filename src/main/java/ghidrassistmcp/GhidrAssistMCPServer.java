@@ -536,7 +536,7 @@ public class GhidrAssistMCPServer {
                 expectedClaimsBuilder.issuer(issuer);
             }
             Set<String> exactAudienceMatch = audience.isEmpty() ? null : Set.of(audience);
-            processor.setJWTClaimsSetVerifier(new DefaultJWTClaimsVerifier<>(
+            processor.setJWTClaimsSetVerifier(new DefaultJWTClaimsVerifier<SecurityContext>(
                 expectedClaimsBuilder.build(),
                 exactAudienceMatch,
                 null,
