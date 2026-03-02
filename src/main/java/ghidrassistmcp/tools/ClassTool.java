@@ -136,6 +136,11 @@ public class ClassTool implements McpTool {
         return true;
     }
 
+
+    @Override
+    public boolean supportsAsync() {
+        return true;
+    }
     @Override
     public String getName() {
         return "class";

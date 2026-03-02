@@ -5,8 +5,10 @@ package ghidrassistmcp;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -74,6 +76,7 @@ import io.modelcontextprotocol.spec.McpSchema;
 public class GhidrAssistMCPBackend implements McpBackend {
 
     private final Map<String, McpTool> tools = new ConcurrentHashMap<>();
+    private final Set<String> asyncCapableTools = ConcurrentHashMap.newKeySet();
     private final Map<String, Boolean> toolEnabledStates = new ConcurrentHashMap<>();
     private final List<McpEventListener> eventListeners = new CopyOnWriteArrayList<>();
     private volatile GhidrAssistMCPManager manager;
@@ -148,6 +151,9 @@ public class GhidrAssistMCPBackend implements McpBackend {
         tools.put(tool.getName(), tool);
         // Tools are enabled by default when registered
         toolEnabledStates.put(tool.getName(), true);
+        if (tool.supportsAsync()) {
+            asyncCapableTools.add(tool.getName());
+        }
         Msg.info(this, "Registered MCP tool: " + tool.getName());
     }
     
@@ -155,6 +161,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
     public void unregisterTool(String toolName) {
         McpTool removed = tools.remove(toolName);
         toolEnabledStates.remove(toolName);
+        asyncCapableTools.remove(toolName);
         if (removed != null) {
             Msg.info(this, "Unregistered MCP tool: " + toolName);
         }
@@ -167,7 +174,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
             // Only include enabled tools in the available tools list
             if (toolEnabledStates.getOrDefault(tool.getName(), true)) {
                 // Augment the schema with program_name parameter for multi-program support
-                McpSchema.JsonSchema augmentedSchema = augmentSchemaWithProgramName(tool.getInputSchema());
+                McpSchema.JsonSchema augmentedSchema = augmentSchemaWithProgramName(tool, tool.getInputSchema());
 
                 // Build tool annotations based on McpTool interface methods
                 McpSchema.ToolAnnotations annotations = new McpSchema.ToolAnnotations(
@@ -197,7 +204,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
      * Augment a tool's input schema with the universal 'program_name' parameter.
      * This allows all tools to optionally target a specific open program.
      */
-    private McpSchema.JsonSchema augmentSchemaWithProgramName(McpSchema.JsonSchema originalSchema) {
+    private McpSchema.JsonSchema augmentSchemaWithProgramName(McpTool tool, McpSchema.JsonSchema originalSchema) {
         // Create the program_name property schema
         Map<String, Object> programNameSchema = new HashMap<>();
         programNameSchema.put("type", "string");
@@ -205,10 +212,17 @@ public class GhidrAssistMCPBackend implements McpBackend {
             "Use list_programs to see available programs. " +
             "If not specified, uses the currently active program.");
 
+        Map<String, Object> asyncSchema = new HashMap<>();
+        asyncSchema.put("type", "boolean");
+        asyncSchema.put("description", "Optional: request async execution and immediate task_id response for tools that support it.");
+
         if (originalSchema == null) {
-            // Create a schema with just program_name
+            // Create a schema with just program_name (+ async when supported)
             Map<String, Object> props = new HashMap<>();
             props.put("program_name", programNameSchema);
+            if (supportsAsyncExecution(tool)) {
+                props.put("async", asyncSchema);
+            }
             return new McpSchema.JsonSchema("object", props, List.of(), null, null, null);
         }
 
@@ -224,6 +238,9 @@ public class GhidrAssistMCPBackend implements McpBackend {
 
         // Add program_name parameter
         newProps.put("program_name", programNameSchema);
+        if (supportsAsyncExecution(tool)) {
+            newProps.put("async", asyncSchema);
+        }
 
         // Return new schema with augmented properties
         return new McpSchema.JsonSchema(
@@ -238,6 +255,8 @@ public class GhidrAssistMCPBackend implements McpBackend {
     
     @Override
     public McpSchema.CallToolResult callTool(String toolName, Map<String, Object> arguments) {
+        Map<String, Object> safeArguments = arguments != null ? arguments : new HashMap<>();
+
         McpTool tool = tools.get(toolName);
         if (tool == null) {
             Msg.warn(this, "Tool not found: " + toolName);
@@ -256,16 +275,16 @@ public class GhidrAssistMCPBackend implements McpBackend {
 
         try {
             // Notify listeners of the request
-            notifyToolRequest(toolName, arguments);
+            notifyToolRequest(toolName, safeArguments);
 
             Msg.info(this, "Executing tool: " + toolName);
 
             // Resolve the target program - check if program_name is specified
-            Program targetProgram = resolveTargetProgram(arguments);
+            Program targetProgram = resolveTargetProgram(safeArguments);
 
             // Check cache for cacheable tools
             if (tool.isCacheable() && targetProgram != null) {
-                String cacheKey = cache.generateKey(toolName, arguments, targetProgram.getName());
+                String cacheKey = cache.generateKey(toolName, safeArguments, targetProgram.getName());
                 McpSchema.CallToolResult cachedResult = cache.get(cacheKey, targetProgram);
                 if (cachedResult != null) {
                     Msg.info(this, "Cache hit for tool: " + toolName);
@@ -274,20 +293,20 @@ public class GhidrAssistMCPBackend implements McpBackend {
                 }
             }
 
-            // Check if this is a long-running tool that should be executed asynchronously
-            if (tool.isLongRunning() && asyncExecutionEnabled) {
-                return executeToolAsync(tool, toolName, arguments, targetProgram);
+            boolean asyncRequested = isAsyncRequested(safeArguments);
+            if (shouldExecuteAsync(tool, toolName, asyncRequested)) {
+                return executeToolAsync(tool, toolName, safeArguments, targetProgram);
             }
 
             // Execute synchronously for normal tools
-            McpSchema.CallToolResult result = tool.execute(arguments, targetProgram, this);
+            McpSchema.CallToolResult result = tool.execute(safeArguments, targetProgram, this);
 
             // Add active context information to help LLM understand which binary is in focus
             result = addActiveContextToResult(result, targetProgram);
 
             // Cache the result if tool is cacheable
             if (tool.isCacheable() && targetProgram != null) {
-                String cacheKey = cache.generateKey(toolName, arguments, targetProgram.getName());
+                String cacheKey = cache.generateKey(toolName, safeArguments, targetProgram.getName());
                 cache.put(cacheKey, result, targetProgram);
                 Msg.debug(this, "Cached result for tool: " + toolName);
             }
@@ -317,7 +336,9 @@ public class GhidrAssistMCPBackend implements McpBackend {
         // Create a reference to this backend for the async execution
         final GhidrAssistMCPBackend backend = this;
 
-        McpTask task = taskManager.submitTask(toolName, arguments, () -> {
+        Map<String, Object> metadata = buildOperationMetadata(toolName, arguments, targetProgram);
+
+        McpTask task = taskManager.submitTask(toolName, arguments, metadata, () -> {
             try {
                 McpSchema.CallToolResult result = tool.execute(arguments, targetProgram, backend);
                 result = addActiveContextToResult(result, targetProgram);
@@ -332,12 +353,69 @@ public class GhidrAssistMCPBackend implements McpBackend {
         // Return task information immediately
         return McpSchema.CallToolResult.builder()
             .addTextContent("Task submitted for async execution.\n\n" +
-                "Task ID: " + task.getTaskId() + "\n" +
+                "task_id: " + task.getTaskId() + "\n" +
                 "Tool: " + toolName + "\n" +
                 "Status: " + task.getStatus() + "\n\n" +
                 "Use get_task_status with this task_id to check progress and retrieve results.\n" +
-                "Use cancel_task to cancel if needed.")
+                "Use list_tasks to review active jobs and cancel_task if needed.\n\n" +
+                task.toSummary())
             .build();
+    }
+
+
+    private boolean isAsyncRequested(Map<String, Object> arguments) {
+        Object asyncValue = arguments.get("async");
+        if (asyncValue instanceof Boolean) {
+            return ((Boolean) asyncValue).booleanValue();
+        }
+        if (asyncValue instanceof String) {
+            return Boolean.parseBoolean((String) asyncValue);
+        }
+        return false;
+    }
+
+    private boolean shouldExecuteAsync(McpTool tool, String toolName, boolean asyncRequested) {
+        if (!asyncExecutionEnabled) {
+            return false;
+        }
+
+        if (asyncRequested) {
+            return supportsAsyncExecution(tool, toolName);
+        }
+
+        return tool.isLongRunning();
+    }
+
+    private boolean supportsAsyncExecution(McpTool tool) {
+        return supportsAsyncExecution(tool, tool.getName());
+    }
+
+    private boolean supportsAsyncExecution(McpTool tool, String toolName) {
+        return tool.supportsAsync() || asyncCapableTools.contains(toolName);
+    }
+
+    private Map<String, Object> buildOperationMetadata(String toolName, Map<String, Object> arguments, Program targetProgram) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("tool_name", toolName);
+
+        Object programName = arguments.get("program_name");
+        if (programName instanceof String && !((String) programName).trim().isEmpty()) {
+            metadata.put("program_name", programName);
+        } else if (targetProgram != null) {
+            metadata.put("program_name", targetProgram.getName());
+        }
+
+        Map<String, Object> keyParams = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : arguments.entrySet()) {
+            String key = entry.getKey();
+            if ("program_name".equals(key) || "async".equals(key)) {
+                continue;
+            }
+            keyParams.put(key, entry.getValue());
+        }
+        metadata.put("key_params", keyParams);
+
+        return metadata;
     }
 
     /**
