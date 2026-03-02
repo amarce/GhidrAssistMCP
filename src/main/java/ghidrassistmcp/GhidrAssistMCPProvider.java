@@ -41,6 +41,9 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private static final String ENABLED_SETTING = "Server Enabled";
     private static final String ASYNC_ENABLED_SETTING = "Async Execution Enabled";
     private static final String ALLOW_DESTRUCTIVE_TOOLS_SETTING = "Allow Destructive Tools";
+    private static final String AUTH_ENABLED_SETTING = "Basic Auth Enabled";
+    private static final String AUTH_USERNAME_SETTING = "Basic Auth Username";
+    private static final String AUTH_PASSWORD_SETTING = "Basic Auth Password";
     private static final String TOOL_PREFIX = "Tool.";
     
     // Default values
@@ -49,6 +52,9 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private static final boolean DEFAULT_ENABLED = true;
     private static final boolean DEFAULT_ASYNC_ENABLED = true;
     private static final boolean DEFAULT_ALLOW_DESTRUCTIVE_TOOLS = false;
+    private static final boolean DEFAULT_AUTH_ENABLED = false;
+    private static final String DEFAULT_AUTH_USERNAME = "mcp";
+    private static final String DEFAULT_AUTH_PASSWORD = "mcp";
     
     private final PluginTool tool;
     private final GhidrAssistMCPPlugin plugin;
@@ -60,6 +66,9 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private JCheckBox enabledCheckBox;
     private JCheckBox asyncEnabledCheckBox;
     private JCheckBox allowDestructiveToolsCheckBox;
+    private JCheckBox authEnabledCheckBox;
+    private JTextField authUsernameField;
+    private JPasswordField authPasswordField;
     private JTable toolsTable;
     private DefaultTableModel toolsTableModel;
     private JButton saveButton;
@@ -140,6 +149,33 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         allowDestructiveToolsCheckBox = new JCheckBox("Allow destructive tools globally", DEFAULT_ALLOW_DESTRUCTIVE_TOOLS);
         allowDestructiveToolsCheckBox.setToolTipText("When disabled, destructive tool calls require confirm_destructive=true per request.");
         serverPanel.add(allowDestructiveToolsCheckBox, gbc);
+
+        // Basic authentication setting
+        gbc.gridy = 5;
+        authEnabledCheckBox = new JCheckBox("Enable Basic Auth", DEFAULT_AUTH_ENABLED);
+        authEnabledCheckBox.setToolTipText("Require HTTP Basic Authentication for MCP endpoints.");
+        serverPanel.add(authEnabledCheckBox, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridy = 6;
+        gbc.gridx = 0;
+        serverPanel.add(new JLabel("Auth Username:"), gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        authUsernameField = new JTextField(DEFAULT_AUTH_USERNAME, 20);
+        serverPanel.add(authUsernameField, gbc);
+
+        gbc.gridy = 7;
+        gbc.gridx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        serverPanel.add(new JLabel("Auth Password:"), gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        authPasswordField = new JPasswordField(DEFAULT_AUTH_PASSWORD, 20);
+        serverPanel.add(authPasswordField, gbc);
 
         panel.add(serverPanel, BorderLayout.NORTH);
         
@@ -284,16 +320,21 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         String enabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ENABLED_SETTING, String.valueOf(DEFAULT_ENABLED));
         String asyncEnabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ASYNC_ENABLED_SETTING, String.valueOf(DEFAULT_ASYNC_ENABLED));
         String allowDestructiveStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(DEFAULT_ALLOW_DESTRUCTIVE_TOOLS));
+        String authEnabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + AUTH_ENABLED_SETTING, String.valueOf(DEFAULT_AUTH_ENABLED));
+        String authUsername = Preferences.getProperty(SETTINGS_CATEGORY + "." + AUTH_USERNAME_SETTING, DEFAULT_AUTH_USERNAME);
+        String authPassword = Preferences.getProperty(SETTINGS_CATEGORY + "." + AUTH_PASSWORD_SETTING, DEFAULT_AUTH_PASSWORD);
 
         int port = DEFAULT_PORT;
         boolean enabled = DEFAULT_ENABLED;
         boolean asyncEnabled = DEFAULT_ASYNC_ENABLED;
         boolean allowDestructiveTools = DEFAULT_ALLOW_DESTRUCTIVE_TOOLS;
+        boolean authEnabled = DEFAULT_AUTH_ENABLED;
         try {
             port = Integer.parseInt(portStr);
             enabled = Boolean.parseBoolean(enabledStr);
             asyncEnabled = Boolean.parseBoolean(asyncEnabledStr);
             allowDestructiveTools = Boolean.parseBoolean(allowDestructiveStr);
+            authEnabled = Boolean.parseBoolean(authEnabledStr);
         } catch (NumberFormatException e) {
             logMessage("Warning: Failed to parse preferences, using defaults");
         }
@@ -303,6 +344,9 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         enabledCheckBox.setSelected(enabled);
         asyncEnabledCheckBox.setSelected(asyncEnabled);
         allowDestructiveToolsCheckBox.setSelected(allowDestructiveTools);
+        authEnabledCheckBox.setSelected(authEnabled);
+        authUsernameField.setText(authUsername);
+        authPasswordField.setText(authPassword);
 
         // Load tool enabled states from tool options
         Options options = tool.getOptions(SETTINGS_CATEGORY);
@@ -336,6 +380,9 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ENABLED_SETTING, String.valueOf(enabledCheckBox.isSelected()));
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ASYNC_ENABLED_SETTING, String.valueOf(asyncEnabledCheckBox.isSelected()));
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(allowDestructiveToolsCheckBox.isSelected()));
+        Preferences.setProperty(SETTINGS_CATEGORY + "." + AUTH_ENABLED_SETTING, String.valueOf(authEnabledCheckBox.isSelected()));
+        Preferences.setProperty(SETTINGS_CATEGORY + "." + AUTH_USERNAME_SETTING, authUsernameField.getText());
+        Preferences.setProperty(SETTINGS_CATEGORY + "." + AUTH_PASSWORD_SETTING, new String(authPasswordField.getPassword()));
 
         // Force preferences to be saved to disk
         Preferences.store();
@@ -356,7 +403,9 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         // Apply changes to the plugin
         plugin.applyConfiguration(hostField.getText(), (Integer) portSpinner.getValue(),
                                 enabledCheckBox.isSelected(), asyncEnabledCheckBox.isSelected(),
-                                allowDestructiveToolsCheckBox.isSelected(), toolEnabledStates);
+                                allowDestructiveToolsCheckBox.isSelected(), authEnabledCheckBox.isSelected(),
+                                authUsernameField.getText(), new String(authPasswordField.getPassword()),
+                                toolEnabledStates);
     }
     
     public void logMessage(String message) {
@@ -421,6 +470,18 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         return allowDestructiveToolsCheckBox.isSelected();
     }
     
+    public boolean isBasicAuthEnabled() {
+        return authEnabledCheckBox.isSelected();
+    }
+
+    public String getAuthUsername() {
+        return authUsernameField.getText();
+    }
+
+    public String getAuthPassword() {
+        return new String(authPasswordField.getPassword());
+    }
+
     public Map<String, Boolean> getToolEnabledStates() {
         return new HashMap<>(toolEnabledStates);
     }

@@ -44,6 +44,9 @@ public class GhidrAssistMCPManager {
     private String currentHost = "localhost";
     private int currentPort = 8080;
     private boolean serverEnabled = true;
+    private boolean authEnabled = false;
+    private String authUsername = "mcp";
+    private String authPassword = "mcp";
 
     /**
      * Private constructor for singleton pattern.
@@ -311,9 +314,13 @@ public class GhidrAssistMCPManager {
      * Apply configuration changes.
      */
     public void applyConfiguration(String host, int port, boolean enabled, boolean asyncEnabled,
-                                   boolean allowDestructiveTools, java.util.Map<String, Boolean> toolStates) {
+                                   boolean allowDestructiveTools, boolean newAuthEnabled,
+                                   String newAuthUsername, String newAuthPassword,
+                                   java.util.Map<String, Boolean> toolStates) {
         if (provider != null) {
-            provider.logMessage("Applying configuration: " + host + ":" + port + " enabled=" + enabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools);
+            provider.logMessage("Applying configuration: " + host + ":" + port + " enabled=" + enabled +
+                " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools +
+                " auth_enabled=" + newAuthEnabled);
         }
 
         boolean needsRestart = false;
@@ -326,6 +333,15 @@ public class GhidrAssistMCPManager {
 
         if (enabled != serverEnabled) {
             serverEnabled = enabled;
+            needsRestart = true;
+        }
+
+        String normalizedAuthUsername = newAuthUsername != null ? newAuthUsername : "";
+        String normalizedAuthPassword = newAuthPassword != null ? newAuthPassword : "";
+        if (newAuthEnabled != authEnabled || !normalizedAuthUsername.equals(authUsername) || !normalizedAuthPassword.equals(authPassword)) {
+            authEnabled = newAuthEnabled;
+            authUsername = normalizedAuthUsername;
+            authPassword = normalizedAuthPassword;
             needsRestart = true;
         }
 
@@ -378,6 +394,9 @@ public class GhidrAssistMCPManager {
         String enabledStr = Preferences.getProperty("GhidrAssistMCP.Server Enabled", "true");
         String asyncEnabledStr = Preferences.getProperty("GhidrAssistMCP.Async Execution Enabled", "true");
         String allowDestructiveStr = Preferences.getProperty("GhidrAssistMCP.Allow Destructive Tools", "false");
+        String authEnabledStr = Preferences.getProperty("GhidrAssistMCP.Basic Auth Enabled", "false");
+        authUsername = Preferences.getProperty("GhidrAssistMCP.Basic Auth Username", "mcp");
+        authPassword = Preferences.getProperty("GhidrAssistMCP.Basic Auth Password", "mcp");
 
         try {
             currentPort = Integer.parseInt(portStr);
@@ -390,15 +409,16 @@ public class GhidrAssistMCPManager {
 
         boolean asyncEnabled = Boolean.parseBoolean(asyncEnabledStr);
         boolean allowDestructiveTools = Boolean.parseBoolean(allowDestructiveStr);
+        authEnabled = Boolean.parseBoolean(authEnabledStr);
         if (backend != null) {
             backend.setAsyncExecutionEnabled(asyncEnabled);
             backend.setAllowDestructiveTools(allowDestructiveTools);
         }
 
-        Msg.info(this, "Loaded settings from Ghidra preferences: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools);
+        Msg.info(this, "Loaded settings from Ghidra preferences: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools + " auth_enabled=" + authEnabled);
 
         if (provider != null) {
-            provider.logMessage("Loaded configuration: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools);
+            provider.logMessage("Loaded configuration: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools + " auth_enabled=" + authEnabled);
         }
     }
 
@@ -419,7 +439,7 @@ public class GhidrAssistMCPManager {
         }
 
         try {
-            server = new GhidrAssistMCPServer(currentHost, currentPort, backend, provider);
+            server = new GhidrAssistMCPServer(currentHost, currentPort, backend, provider, authEnabled, authUsername, authPassword);
             server.start();
             if (provider != null) {
                 provider.logSession("Server started on " + currentHost + ":" + currentPort);
