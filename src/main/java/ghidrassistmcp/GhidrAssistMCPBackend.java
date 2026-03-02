@@ -33,6 +33,7 @@ import ghidrassistmcp.tools.BookmarksTool;
 import ghidrassistmcp.tools.CancelTaskTool;
 import ghidrassistmcp.tools.ClassTool;
 import ghidrassistmcp.tools.DeleteDataTypeTool;
+import ghidrassistmcp.tools.FunctionLifecycleTool;
 import ghidrassistmcp.tools.GetBasicBlocksTool;
 import ghidrassistmcp.tools.GetCallGraphTool;
 import ghidrassistmcp.tools.GetCodeTool;
@@ -53,6 +54,7 @@ import ghidrassistmcp.tools.ListRelocationsTool;
 import ghidrassistmcp.tools.ListSegmentsTool;
 import ghidrassistmcp.tools.ListStringsTool;
 import ghidrassistmcp.tools.ListTasksTool;
+import ghidrassistmcp.tools.PatchBytesTool;
 import ghidrassistmcp.tools.ProgramInfoTool;
 import ghidrassistmcp.tools.RenameSymbolBatchTool;
 import ghidrassistmcp.tools.RenameSymbolTool;
@@ -117,6 +119,8 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new SetFunctionPrototypeTool());
         registerTool(new SetLocalVariableTypeTool());
         registerTool(new SetDataTypeTool());
+        registerTool(new FunctionLifecycleTool());
+        registerTool(new PatchBytesTool());
 
         // Register async task management tools
         registerTool(new GetTaskStatusTool());
