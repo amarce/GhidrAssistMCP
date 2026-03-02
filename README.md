@@ -97,11 +97,18 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
      - `none`: no authentication (recommended only for trusted local/dev setups)
      - `basic`: HTTP Basic auth with username/password
      - `oauth`: Bearer token flow with issuer/audience/client metadata
+     - Note: Some clients (including OpenAI-hosted tools) require OAuth for authenticated MCP servers.
 
 ### OpenAI MCP Compatibility Guidance
 
 - Use **`none`** for local/dev workflows where your MCP server is only reachable in a trusted environment.
 - Use **`oauth`** for OpenAI-hosted MCP connections so clients can authenticate with `Authorization: Bearer <token>`.
+
+### Troubleshooting: OpenAI "OAuth required" / Basic Auth incompatibility
+
+- **Symptom**: Your client (including OpenAI-hosted tools) says **"OAuth required"** even when you expect mixed-mode behavior.
+- **Cause**: The MCP server is configured for **Basic auth**, which leads to **Basic Auth incompatibility** with OAuth-only client expectations.
+- **Resolution**: Switch server auth to **OAuth mode** (once implemented) or disable auth for trusted local use.
 
 ### Tool Management
 
