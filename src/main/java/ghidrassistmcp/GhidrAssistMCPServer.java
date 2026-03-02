@@ -6,8 +6,10 @@ package ghidrassistmcp;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.function.BiFunction;
 
@@ -16,6 +18,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
+import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
@@ -26,6 +29,14 @@ import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.jwk.source.RemoteJWKSet;
+import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jose.proc.JWSAlgorithmFamilyJWSKeySelector;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.proc.ConfigurableJWTProcessor;
+import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
+import com.nimbusds.jwt.proc.DefaultJWTProcessor;
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -61,6 +72,7 @@ public class GhidrAssistMCPServer {
     private final String oauthJwksUrl;
     private final String oauthAudience;
     private final String oauthRequiredScope;
+    private final ObjectMapper objectMapper;
     
     public GhidrAssistMCPServer(String host, int port, McpBackend backend) {
         this(host, port, backend, null, AuthConfig.AuthMode.NONE, "", "", "", "", "", "");
@@ -84,6 +96,8 @@ public class GhidrAssistMCPServer {
         this.oauthJwksUrl = oauthJwksUrl != null ? oauthJwksUrl : "";
         this.oauthAudience = oauthAudience != null ? oauthAudience : "";
         this.oauthRequiredScope = oauthRequiredScope != null ? oauthRequiredScope : "";
+        this.objectMapper = new ObjectMapper();
+        this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
     
     public void start() throws Exception {
@@ -107,8 +121,6 @@ public class GhidrAssistMCPServer {
 
             // Create MCP transport provider using custom ObjectMapper that ignores unknown properties
             Msg.info(this, "Creating MCP transport provider");
-            ObjectMapper objectMapper = new ObjectMapper();
-            objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
             JacksonMcpJsonMapper mapper = new JacksonMcpJsonMapper(objectMapper);
             String messageEndpoint = "/message";
             String mcpEndpoint = "/mcp";
@@ -118,8 +130,17 @@ public class GhidrAssistMCPServer {
                 FilterHolder authFilterHolder = new FilterHolder(new AuthFilter(authStrategy));
                 context.addFilter(authFilterHolder, "/sse", null);
                 context.addFilter(authFilterHolder, messageEndpoint, null);
+                context.addFilter(authFilterHolder, mcpEndpoint, null);
                 context.addFilter(authFilterHolder, "/mcp/*", null);
                 Msg.info(this, "Auth mode " + authMode.persistedValue() + " enabled for MCP endpoints");
+            }
+
+            if (authMode == AuthConfig.AuthMode.OAUTH) {
+                OAuthMetadataServlet oauthMetadataServlet = new OAuthMetadataServlet(
+                    host, port, oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, objectMapper);
+                ServletHolder oauthMetadataHolder = new ServletHolder("oauth-metadata", oauthMetadataServlet);
+                context.addServlet(oauthMetadataHolder, "/.well-known/oauth-protected-resource");
+                context.addServlet(oauthMetadataHolder, "/.well-known/oauth-authorization-server");
             }
 
             HttpServletSseServerTransportProvider sseTransportProvider =
@@ -182,6 +203,7 @@ public class GhidrAssistMCPServer {
 
                 ServletHolder mcpStreamableServletHolder = new ServletHolder("mcp-streamable-transport", streamableTransportProvider);
                 mcpStreamableServletHolder.setAsyncSupported(true);
+                context.addServlet(mcpStreamableServletHolder, mcpEndpoint);
                 context.addServlet(mcpStreamableServletHolder, "/mcp/*");
                 Msg.info(this, "Registered MCP SSE servlet mapping: /*");
                 Msg.info(this, "Registered MCP Streamable servlet mapping: /mcp/*");
@@ -242,7 +264,7 @@ public class GhidrAssistMCPServer {
         }
         if (authMode == AuthConfig.AuthMode.OAUTH) {
             return new BearerAuthStrategy(oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope,
-                new NoOpBearerTokenValidator());
+                new JwtBearerTokenValidator(oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, objectMapper));
         }
         return new NoAuthStrategy();
     }
@@ -455,23 +477,195 @@ public class GhidrAssistMCPServer {
         boolean validate(String token, HttpServletRequest request);
     }
 
-    private static class StaticBearerTokenValidator implements BearerTokenValidator {
-        private final String expectedTokenHash;
+    private static class JwtBearerTokenValidator implements BearerTokenValidator {
+        private final String issuer;
+        private final String jwksUrl;
+        private final String audience;
+        private final String requiredScope;
+        private final ObjectMapper objectMapper;
+        private volatile ConfigurableJWTProcessor<SecurityContext> jwtProcessor;
 
-        StaticBearerTokenValidator(String expectedTokenHash) {
-            this.expectedTokenHash = expectedTokenHash != null ? expectedTokenHash : "";
+        JwtBearerTokenValidator(String issuer, String jwksUrl, String audience, String requiredScope, ObjectMapper objectMapper) {
+            this.issuer = issuer != null ? issuer.trim() : "";
+            this.jwksUrl = jwksUrl != null ? jwksUrl.trim() : "";
+            this.audience = audience != null ? audience.trim() : "";
+            this.requiredScope = requiredScope != null ? requiredScope.trim() : "";
+            this.objectMapper = objectMapper;
         }
 
         @Override
         public boolean validate(String token, HttpServletRequest request) {
-            return !expectedTokenHash.isEmpty() && PasswordVerifier.verifyPassword(token, expectedTokenHash);
+            if (issuer.isEmpty() || audience.isEmpty()) {
+                return false;
+            }
+            try {
+                ConfigurableJWTProcessor<SecurityContext> processor = getOrCreateProcessor();
+                JWTClaimsSet claims = processor.process(token, null);
+                if (!requiredScope.isEmpty() && !hasScope(claims, requiredScope)) {
+                    return false;
+                }
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        private ConfigurableJWTProcessor<SecurityContext> getOrCreateProcessor() throws Exception {
+            if (jwtProcessor == null) {
+                synchronized (this) {
+                    if (jwtProcessor == null) {
+                        jwtProcessor = buildJwtProcessor();
+                    }
+                }
+            }
+            return jwtProcessor;
+        }
+
+        private ConfigurableJWTProcessor<SecurityContext> buildJwtProcessor() throws Exception {
+            String resolvedJwks = resolveJwksUrl();
+            if (resolvedJwks.isEmpty()) {
+                throw new IllegalStateException("Unable to resolve OAuth JWKS URL");
+            }
+
+            DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
+            JWKSource<SecurityContext> jwkSource = new RemoteJWKSet<>(new java.net.URL(resolvedJwks));
+            processor.setJWSKeySelector(JWSAlgorithmFamilyJWSKeySelector.fromJWKSource(jwkSource));
+
+            JWTClaimsSet.Builder expectedClaimsBuilder = new JWTClaimsSet.Builder();
+            if (!issuer.isEmpty()) {
+                expectedClaimsBuilder.issuer(issuer);
+            }
+            Set<String> exactAudienceMatch = audience.isEmpty() ? null : Set.of(audience);
+            processor.setJWTClaimsSetVerifier(new DefaultJWTClaimsVerifier<>(
+                expectedClaimsBuilder.build(),
+                exactAudienceMatch,
+                null,
+                null));
+            return processor;
+        }
+
+        private String resolveJwksUrl() {
+            if (!jwksUrl.isEmpty()) {
+                return jwksUrl;
+            }
+            if (issuer.isEmpty()) {
+                return "";
+            }
+            List<String> metadataUrls = List.of(
+                trimSlash(issuer) + "/.well-known/openid-configuration",
+                trimSlash(issuer) + "/.well-known/oauth-authorization-server");
+            for (String metadataUrl : metadataUrls) {
+                String resolved = resolveJwksFromMetadata(metadataUrl);
+                if (!resolved.isEmpty()) {
+                    return resolved;
+                }
+            }
+            return "";
+        }
+
+        private String resolveJwksFromMetadata(String metadataUrl) {
+            try {
+                java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create(metadataUrl))
+                    .timeout(Duration.ofSeconds(5))
+                    .GET()
+                    .build();
+                java.net.http.HttpResponse<String> response = java.net.http.HttpClient.newHttpClient().send(
+                    request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() / 100 != 2) {
+                    return "";
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> metadata = objectMapper.readValue(response.body(), Map.class);
+                Object value = metadata.get("jwks_uri");
+                return value instanceof String ? (String) value : "";
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        private boolean hasScope(JWTClaimsSet claims, String scope) {
+            Object scopeClaim = claims.getClaim("scope");
+            if (scopeClaim instanceof String) {
+                for (String tokenScope : ((String) scopeClaim).split("\\s+")) {
+                    if (scope.equals(tokenScope)) {
+                        return true;
+                    }
+                }
+            }
+            Object scpClaim = claims.getClaim("scp");
+            if (scpClaim instanceof List<?>) {
+                for (Object item : (List<?>) scpClaim) {
+                    if (scope.equals(String.valueOf(item))) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private String trimSlash(String value) {
+            return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
         }
     }
 
-    private static class NoOpBearerTokenValidator implements BearerTokenValidator {
+    private static class OAuthMetadataServlet extends HttpServlet {
+        private final String host;
+        private final int port;
+        private final String issuer;
+        private final String jwksUrl;
+        private final String audience;
+        private final String requiredScope;
+        private final ObjectMapper objectMapper;
+
+        OAuthMetadataServlet(String host, int port, String issuer, String jwksUrl, String audience,
+                String requiredScope, ObjectMapper objectMapper) {
+            this.host = host;
+            this.port = port;
+            this.issuer = issuer != null ? issuer : "";
+            this.jwksUrl = jwksUrl != null ? jwksUrl : "";
+            this.audience = audience != null ? audience : "";
+            this.requiredScope = requiredScope != null ? requiredScope : "";
+            this.objectMapper = objectMapper;
+        }
+
         @Override
-        public boolean validate(String token, HttpServletRequest request) {
-            return true;
+        protected void doGet(HttpServletRequest request, HttpServletResponse response) throws java.io.IOException {
+            response.setContentType("application/json");
+            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+
+            String uri = request.getRequestURI();
+            if ("/.well-known/oauth-protected-resource".equals(uri)) {
+                Map<String, Object> metadata = new HashMap<>();
+                metadata.put("resource", "http://" + host + ":" + port);
+                if (!issuer.isEmpty()) {
+                    metadata.put("authorization_servers", List.of(issuer));
+                    metadata.put("bearer_methods_supported", List.of("header"));
+                }
+                if (!requiredScope.isEmpty()) {
+                    metadata.put("scopes_supported", List.of(requiredScope));
+                }
+                objectMapper.writeValue(response.getWriter(), metadata);
+                return;
+            }
+
+            if ("/.well-known/oauth-authorization-server".equals(uri)) {
+                Map<String, Object> metadata = new HashMap<>();
+                metadata.put("issuer", issuer);
+                if (!jwksUrl.isEmpty()) {
+                    metadata.put("jwks_uri", jwksUrl);
+                }
+                if (!audience.isEmpty()) {
+                    metadata.put("resource", audience);
+                }
+                if (!requiredScope.isEmpty()) {
+                    metadata.put("scopes_supported", List.of(requiredScope));
+                }
+                objectMapper.writeValue(response.getWriter(), metadata);
+                return;
+            }
+
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
         }
     }
 
