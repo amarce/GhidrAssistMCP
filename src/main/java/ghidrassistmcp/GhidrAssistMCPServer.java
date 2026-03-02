@@ -25,7 +25,6 @@ import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import ghidra.framework.preferences.Preferences;
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -47,24 +46,33 @@ public class GhidrAssistMCPServer {
 
     private static final String AUTH_REALM = "GhidrAssistMCP";
     private static final String AUTH_HEADER_PREFIX = "Basic ";
-    private static final String PREF_BASIC_AUTH_USERNAME = "GhidrAssistMCP.Basic Auth Username";
-    private static final String PREF_BASIC_AUTH_PASSWORD = "GhidrAssistMCP.Basic Auth Password";
     
     private final McpBackend backend;
     private final GhidrAssistMCPProvider provider;
     private Server jettyServer;
     private final String host;
     private final int port;
+    private final boolean authEnabled;
+    private final String authUsername;
+    private final String authPassword;
     
     public GhidrAssistMCPServer(String host, int port, McpBackend backend) {
-        this(host, port, backend, null);
+        this(host, port, backend, null, false, "", "");
     }
-    
+
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider) {
+        this(host, port, backend, provider, false, "", "");
+    }
+
+    public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider,
+                                boolean authEnabled, String authUsername, String authPassword) {
         this.host = host;
         this.port = port;
         this.backend = backend;
         this.provider = provider;
+        this.authEnabled = authEnabled;
+        this.authUsername = authUsername != null ? authUsername : "";
+        this.authPassword = authPassword != null ? authPassword : "";
     }
     
     public void start() throws Exception {
@@ -94,11 +102,14 @@ public class GhidrAssistMCPServer {
             String messageEndpoint = "/message";
             String mcpEndpoint = "/mcp";
 
-            String expectedAuthorizationHeader = buildExpectedAuthorizationHeader();
-            FilterHolder authFilterHolder = new FilterHolder(new BasicAuthFilter(expectedAuthorizationHeader));
-            context.addFilter(authFilterHolder, "/sse", null);
-            context.addFilter(authFilterHolder, messageEndpoint, null);
-            context.addFilter(authFilterHolder, "/mcp/*", null);
+            if (authEnabled) {
+                String expectedAuthorizationHeader = buildExpectedAuthorizationHeader();
+                FilterHolder authFilterHolder = new FilterHolder(new BasicAuthFilter(expectedAuthorizationHeader));
+                context.addFilter(authFilterHolder, "/sse", null);
+                context.addFilter(authFilterHolder, messageEndpoint, null);
+                context.addFilter(authFilterHolder, "/mcp/*", null);
+                Msg.info(this, "Basic auth enabled for MCP endpoints");
+            }
 
             HttpServletSseServerTransportProvider sseTransportProvider =
                 HttpServletSseServerTransportProvider.builder()
@@ -215,9 +226,7 @@ public class GhidrAssistMCPServer {
     }
     
     private String buildExpectedAuthorizationHeader() {
-        String username = Preferences.getProperty(PREF_BASIC_AUTH_USERNAME, "mcp");
-        String password = Preferences.getProperty(PREF_BASIC_AUTH_PASSWORD, "mcp");
-        String token = username + ":" + password;
+        String token = authUsername + ":" + authPassword;
         String encodedToken = Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
         return AUTH_HEADER_PREFIX + encodedToken;
     }
