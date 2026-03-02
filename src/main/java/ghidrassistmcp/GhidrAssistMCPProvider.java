@@ -384,6 +384,12 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         String allowDestructiveStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(DEFAULT_ALLOW_DESTRUCTIVE_TOOLS));
         AuthConfig.AuthMode authMode = AuthConfig.AuthMode.fromPersisted(
             Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.AUTH_MODE_SETTING), "none"));
+        String legacyAuthEnabled = Preferences.getProperty(
+            BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_ENABLED_SETTING),
+            "false");
+        if (authMode == AuthConfig.AuthMode.NONE && Boolean.parseBoolean(legacyAuthEnabled)) {
+            authMode = AuthConfig.AuthMode.BASIC;
+        }
         String authUsername = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_USERNAME_SETTING), DEFAULT_AUTH_USERNAME);
         String oauthIssuer = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_ISSUER_SETTING), "");
         String oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
