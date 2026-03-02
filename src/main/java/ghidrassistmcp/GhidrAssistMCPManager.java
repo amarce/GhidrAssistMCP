@@ -44,9 +44,13 @@ public class GhidrAssistMCPManager {
     private String currentHost = "localhost";
     private int currentPort = 8080;
     private boolean serverEnabled = true;
-    private boolean authEnabled = false;
-    private String authUsername = BasicAuthConfig.DEFAULT_AUTH_USERNAME;
+    private AuthConfig.AuthMode authMode = AuthConfig.AuthMode.NONE;
+    private String authUsername = AuthConfig.DEFAULT_BASIC_USERNAME;
     private String authPasswordHash = "";
+    private String oauthIssuer = "";
+    private String oauthAudience = "";
+    private String oauthClientId = "";
+    private String oauthTokenHash = "";
 
     /**
      * Private constructor for singleton pattern.
@@ -314,13 +318,15 @@ public class GhidrAssistMCPManager {
      * Apply configuration changes.
      */
     public void applyConfiguration(String host, int port, boolean enabled, boolean asyncEnabled,
-                                   boolean allowDestructiveTools, boolean newAuthEnabled,
+                                   boolean allowDestructiveTools, AuthConfig.AuthMode newAuthMode,
                                    String newAuthUsername, String newAuthPassword,
+                                   String newOauthIssuer, String newOauthAudience, String newOauthClientId,
+                                   String newOauthToken,
                                    java.util.Map<String, Boolean> toolStates) {
         if (provider != null) {
             provider.logMessage("Applying configuration: " + host + ":" + port + " enabled=" + enabled +
                 " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools +
-                " auth_enabled=" + newAuthEnabled);
+                " auth_mode=" + (newAuthMode != null ? newAuthMode.persistedValue() : "none"));
         }
 
         boolean needsRestart = false;
@@ -336,12 +342,24 @@ public class GhidrAssistMCPManager {
             needsRestart = true;
         }
 
+        AuthConfig.AuthMode normalizedAuthMode = newAuthMode != null ? newAuthMode : AuthConfig.AuthMode.NONE;
         String normalizedAuthUsername = newAuthUsername != null ? newAuthUsername : "";
-        String normalizedAuthPasswordHash = BasicAuthConfig.chooseHashForSave(newAuthPassword, authPasswordHash);
-        if (newAuthEnabled != authEnabled || !normalizedAuthUsername.equals(authUsername) || !normalizedAuthPasswordHash.equals(authPasswordHash)) {
-            authEnabled = newAuthEnabled;
+        String normalizedAuthPasswordHash = AuthConfig.chooseHashForSave(newAuthPassword, authPasswordHash);
+        String normalizedOauthIssuer = newOauthIssuer != null ? newOauthIssuer : "";
+        String normalizedOauthAudience = newOauthAudience != null ? newOauthAudience : "";
+        String normalizedOauthClientId = newOauthClientId != null ? newOauthClientId : "";
+        String normalizedOauthTokenHash = AuthConfig.chooseHashForSave(newOauthToken, oauthTokenHash);
+        if (normalizedAuthMode != authMode || !normalizedAuthUsername.equals(authUsername) ||
+            !normalizedAuthPasswordHash.equals(authPasswordHash) || !normalizedOauthIssuer.equals(oauthIssuer) ||
+            !normalizedOauthAudience.equals(oauthAudience) || !normalizedOauthClientId.equals(oauthClientId) ||
+            !normalizedOauthTokenHash.equals(oauthTokenHash)) {
+            authMode = normalizedAuthMode;
             authUsername = normalizedAuthUsername;
             authPasswordHash = normalizedAuthPasswordHash;
+            oauthIssuer = normalizedOauthIssuer;
+            oauthAudience = normalizedOauthAudience;
+            oauthClientId = normalizedOauthClientId;
+            oauthTokenHash = normalizedOauthTokenHash;
             needsRestart = true;
         }
 
@@ -394,13 +412,23 @@ public class GhidrAssistMCPManager {
         String enabledStr = Preferences.getProperty("GhidrAssistMCP.Server Enabled", "true");
         String asyncEnabledStr = Preferences.getProperty("GhidrAssistMCP.Async Execution Enabled", "true");
         String allowDestructiveStr = Preferences.getProperty("GhidrAssistMCP.Allow Destructive Tools", "false");
-        String authEnabledStr = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_ENABLED_SETTING), "false");
-        authUsername = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_USERNAME_SETTING), BasicAuthConfig.DEFAULT_AUTH_USERNAME);
-        authPasswordHash = BasicAuthConfig.resolvePasswordHash();
+        authMode = AuthConfig.AuthMode.fromPersisted(
+            Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.AUTH_MODE_SETTING), "none"));
+        authUsername = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_USERNAME_SETTING), AuthConfig.DEFAULT_BASIC_USERNAME);
+        authPasswordHash = AuthConfig.resolveBasicPasswordHash();
+        oauthIssuer = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_ISSUER_SETTING), "");
+        oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
+        oauthClientId = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_CLIENT_ID_SETTING), "");
+        oauthTokenHash = AuthConfig.resolveOauthTokenHash();
 
-        String legacyPlaintextPassword = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_PASSWORD_SETTING), "");
+        String legacyPlaintextPassword = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_PASSWORD_SETTING), "");
         if (authPasswordHash.isEmpty() && !legacyPlaintextPassword.isEmpty()) {
             authPasswordHash = PasswordVerifier.hashPassword(legacyPlaintextPassword);
+        }
+
+        String legacyOauthToken = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_BEARER_TOKEN_SETTING), "");
+        if (oauthTokenHash.isEmpty() && !legacyOauthToken.isEmpty()) {
+            oauthTokenHash = PasswordVerifier.hashPassword(legacyOauthToken);
         }
 
         try {
@@ -414,16 +442,20 @@ public class GhidrAssistMCPManager {
 
         boolean asyncEnabled = Boolean.parseBoolean(asyncEnabledStr);
         boolean allowDestructiveTools = Boolean.parseBoolean(allowDestructiveStr);
-        authEnabled = Boolean.parseBoolean(authEnabledStr);
+        // Backward compatibility: if no mode stored but old toggle is true, default to basic.
+        String legacyAuthEnabled = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_ENABLED_SETTING), "false");
+        if (authMode == AuthConfig.AuthMode.NONE && Boolean.parseBoolean(legacyAuthEnabled)) {
+            authMode = AuthConfig.AuthMode.BASIC;
+        }
         if (backend != null) {
             backend.setAsyncExecutionEnabled(asyncEnabled);
             backend.setAllowDestructiveTools(allowDestructiveTools);
         }
 
-        Msg.info(this, "Loaded settings from Ghidra preferences: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools + " auth_enabled=" + authEnabled);
+        Msg.info(this, "Loaded settings from Ghidra preferences: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools + " auth_mode=" + authMode.persistedValue());
 
         if (provider != null) {
-            provider.logMessage("Loaded configuration: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools + " auth_enabled=" + authEnabled);
+            provider.logMessage("Loaded configuration: " + currentHost + ":" + currentPort + " enabled=" + serverEnabled + " async=" + asyncEnabled + " allow_destructive_tools=" + allowDestructiveTools + " auth_mode=" + authMode.persistedValue());
         }
     }
 
@@ -444,7 +476,8 @@ public class GhidrAssistMCPManager {
         }
 
         try {
-            server = new GhidrAssistMCPServer(currentHost, currentPort, backend, provider, authEnabled, authUsername, authPasswordHash);
+            server = new GhidrAssistMCPServer(currentHost, currentPort, backend, provider, authMode, authUsername,
+                authPasswordHash, oauthIssuer, oauthAudience, oauthClientId, oauthTokenHash);
             server.start();
             if (provider != null) {
                 provider.logSession("Server started on " + currentHost + ":" + currentPort);

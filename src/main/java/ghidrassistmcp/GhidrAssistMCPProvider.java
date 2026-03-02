@@ -41,8 +41,6 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private static final String ENABLED_SETTING = "Server Enabled";
     private static final String ASYNC_ENABLED_SETTING = "Async Execution Enabled";
     private static final String ALLOW_DESTRUCTIVE_TOOLS_SETTING = "Allow Destructive Tools";
-    private static final String AUTH_ENABLED_SETTING = BasicAuthConfig.AUTH_ENABLED_SETTING;
-    private static final String AUTH_USERNAME_SETTING = BasicAuthConfig.AUTH_USERNAME_SETTING;
     private static final String TOOL_PREFIX = "Tool.";
     
     // Default values
@@ -51,9 +49,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private static final boolean DEFAULT_ENABLED = true;
     private static final boolean DEFAULT_ASYNC_ENABLED = true;
     private static final boolean DEFAULT_ALLOW_DESTRUCTIVE_TOOLS = false;
-    private static final boolean DEFAULT_AUTH_ENABLED = false;
-    private static final String DEFAULT_AUTH_USERNAME = BasicAuthConfig.DEFAULT_AUTH_USERNAME;
-    private static final String DEFAULT_AUTH_PASSWORD = "";
+    private static final String DEFAULT_AUTH_USERNAME = AuthConfig.DEFAULT_BASIC_USERNAME;
     
     private final PluginTool tool;
     private final GhidrAssistMCPPlugin plugin;
@@ -65,14 +61,21 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private JCheckBox enabledCheckBox;
     private JCheckBox asyncEnabledCheckBox;
     private JCheckBox allowDestructiveToolsCheckBox;
-    private JCheckBox authEnabledCheckBox;
+    private JComboBox<AuthConfig.AuthMode> authModeComboBox;
+    private JPanel basicAuthPanel;
+    private JPanel oauthPanel;
     private JTextField authUsernameField;
     private JPasswordField authPasswordField;
+    private JTextField oauthIssuerField;
+    private JTextField oauthAudienceField;
+    private JTextField oauthClientIdField;
+    private JPasswordField oauthTokenField;
     private JTable toolsTable;
     private DefaultTableModel toolsTableModel;
     private JButton saveButton;
     private Map<String, Boolean> toolEnabledStates;
-    private String currentAuthPasswordHash = "";
+    private String currentBasicAuthPasswordHash = "";
+    private String currentOauthTokenHash = "";
     
     // Log tab components
     private JTextArea logTextArea;
@@ -150,32 +153,29 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         allowDestructiveToolsCheckBox.setToolTipText("When disabled, destructive tool calls require confirm_destructive=true per request.");
         serverPanel.add(allowDestructiveToolsCheckBox, gbc);
 
-        // Basic authentication setting
+        // Auth mode setting
         gbc.gridy = 5;
-        authEnabledCheckBox = new JCheckBox("Enable Basic Auth", DEFAULT_AUTH_ENABLED);
-        authEnabledCheckBox.setToolTipText("Require HTTP Basic Authentication for MCP endpoints.");
-        serverPanel.add(authEnabledCheckBox, gbc);
-
         gbc.gridwidth = 1;
+        gbc.gridx = 0;
+        serverPanel.add(new JLabel("Auth Mode:"), gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        authModeComboBox = new JComboBox<>(AuthConfig.AuthMode.values());
+        authModeComboBox.setToolTipText("none: no auth, basic: username/password, oauth: bearer token.");
+        serverPanel.add(authModeComboBox, gbc);
+
         gbc.gridy = 6;
         gbc.gridx = 0;
-        serverPanel.add(new JLabel("Auth Username:"), gbc);
-        gbc.gridx = 1;
+        gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-        authUsernameField = new JTextField(DEFAULT_AUTH_USERNAME, 20);
-        serverPanel.add(authUsernameField, gbc);
+        basicAuthPanel = createBasicAuthPanel();
+        serverPanel.add(basicAuthPanel, gbc);
 
         gbc.gridy = 7;
-        gbc.gridx = 0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.weightx = 0;
-        serverPanel.add(new JLabel("Auth Password:"), gbc);
-        gbc.gridx = 1;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-        authPasswordField = new JPasswordField(DEFAULT_AUTH_PASSWORD, 20);
-        serverPanel.add(authPasswordField, gbc);
+        oauthPanel = createOauthPanel();
+        serverPanel.add(oauthPanel, gbc);
+
+        authModeComboBox.addActionListener(e -> updateAuthFieldVisibility());
 
         panel.add(serverPanel, BorderLayout.NORTH);
         
@@ -219,6 +219,68 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         return panel;
     }
     
+    private JPanel createBasicAuthPanel() {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createTitledBorder("Basic Authentication"));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0; gbc.gridy = 0; gbc.anchor = GridBagConstraints.WEST;
+        panel.add(new JLabel("Username:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        authUsernameField = new JTextField(DEFAULT_AUTH_USERNAME, 20);
+        panel.add(authUsernameField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Password:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        authPasswordField = new JPasswordField("", 20);
+        panel.add(authPasswordField, gbc);
+
+        return panel;
+    }
+
+    private JPanel createOauthPanel() {
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createTitledBorder("OAuth / Bearer Settings"));
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0; gbc.gridy = 0; gbc.anchor = GridBagConstraints.WEST;
+        panel.add(new JLabel("Issuer:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthIssuerField = new JTextField("", 20);
+        panel.add(oauthIssuerField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Audience:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthAudienceField = new JTextField("", 20);
+        panel.add(oauthAudienceField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Client ID:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthClientIdField = new JTextField("", 20);
+        panel.add(oauthClientIdField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Bearer Token:"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthTokenField = new JPasswordField("", 20);
+        panel.add(oauthTokenField, gbc);
+
+        return panel;
+    }
+
+    private void updateAuthFieldVisibility() {
+        AuthConfig.AuthMode selectedMode = (AuthConfig.AuthMode) authModeComboBox.getSelectedItem();
+        boolean showBasic = selectedMode == AuthConfig.AuthMode.BASIC;
+        boolean showOauth = selectedMode == AuthConfig.AuthMode.OAUTH;
+        basicAuthPanel.setVisible(showBasic);
+        oauthPanel.setVisible(showOauth);
+        basicAuthPanel.revalidate();
+        oauthPanel.revalidate();
+    }
+
     private JPanel createLogPanel() {
         JPanel panel = new JPanel(new BorderLayout());
         
@@ -320,25 +382,34 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         String enabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ENABLED_SETTING, String.valueOf(DEFAULT_ENABLED));
         String asyncEnabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ASYNC_ENABLED_SETTING, String.valueOf(DEFAULT_ASYNC_ENABLED));
         String allowDestructiveStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(DEFAULT_ALLOW_DESTRUCTIVE_TOOLS));
-        String authEnabledStr = Preferences.getProperty(SETTINGS_CATEGORY + "." + AUTH_ENABLED_SETTING, String.valueOf(DEFAULT_AUTH_ENABLED));
-        String authUsername = Preferences.getProperty(SETTINGS_CATEGORY + "." + AUTH_USERNAME_SETTING, DEFAULT_AUTH_USERNAME);
-        currentAuthPasswordHash = BasicAuthConfig.resolvePasswordHash();
-        String legacyPlaintextPassword = Preferences.getProperty(BasicAuthConfig.getQualifiedKey(BasicAuthConfig.AUTH_PASSWORD_SETTING), "");
-        String authPassword = (!legacyPlaintextPassword.isEmpty() && currentAuthPasswordHash.isEmpty())
-            ? legacyPlaintextPassword
-            : DEFAULT_AUTH_PASSWORD;
+        AuthConfig.AuthMode authMode = AuthConfig.AuthMode.fromPersisted(
+            Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.AUTH_MODE_SETTING), "none"));
+        String authUsername = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_USERNAME_SETTING), DEFAULT_AUTH_USERNAME);
+        String oauthIssuer = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_ISSUER_SETTING), "");
+        String oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
+        String oauthClientId = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_CLIENT_ID_SETTING), "");
+
+        currentBasicAuthPasswordHash = AuthConfig.resolveBasicPasswordHash();
+        String legacyBasicPassword = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_PASSWORD_SETTING), "");
+        String authPassword = (!legacyBasicPassword.isEmpty() && currentBasicAuthPasswordHash.isEmpty())
+            ? legacyBasicPassword
+            : "";
+
+        currentOauthTokenHash = AuthConfig.resolveOauthTokenHash();
+        String legacyOauthToken = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_BEARER_TOKEN_SETTING), "");
+        String oauthToken = (!legacyOauthToken.isEmpty() && currentOauthTokenHash.isEmpty())
+            ? legacyOauthToken
+            : "";
 
         int port = DEFAULT_PORT;
         boolean enabled = DEFAULT_ENABLED;
         boolean asyncEnabled = DEFAULT_ASYNC_ENABLED;
         boolean allowDestructiveTools = DEFAULT_ALLOW_DESTRUCTIVE_TOOLS;
-        boolean authEnabled = DEFAULT_AUTH_ENABLED;
         try {
             port = Integer.parseInt(portStr);
             enabled = Boolean.parseBoolean(enabledStr);
             asyncEnabled = Boolean.parseBoolean(asyncEnabledStr);
             allowDestructiveTools = Boolean.parseBoolean(allowDestructiveStr);
-            authEnabled = Boolean.parseBoolean(authEnabledStr);
         } catch (NumberFormatException e) {
             logMessage("Warning: Failed to parse preferences, using defaults");
         }
@@ -348,9 +419,14 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         enabledCheckBox.setSelected(enabled);
         asyncEnabledCheckBox.setSelected(asyncEnabled);
         allowDestructiveToolsCheckBox.setSelected(allowDestructiveTools);
-        authEnabledCheckBox.setSelected(authEnabled);
+        authModeComboBox.setSelectedItem(authMode);
         authUsernameField.setText(authUsername);
         authPasswordField.setText(authPassword);
+        oauthIssuerField.setText(oauthIssuer);
+        oauthAudienceField.setText(oauthAudience);
+        oauthClientIdField.setText(oauthClientId);
+        oauthTokenField.setText(oauthToken);
+        updateAuthFieldVisibility();
 
         // Load tool enabled states from tool options
         Options options = tool.getOptions(SETTINGS_CATEGORY);
@@ -384,10 +460,14 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ENABLED_SETTING, String.valueOf(enabledCheckBox.isSelected()));
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ASYNC_ENABLED_SETTING, String.valueOf(asyncEnabledCheckBox.isSelected()));
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(allowDestructiveToolsCheckBox.isSelected()));
+        AuthConfig.AuthMode authMode = (AuthConfig.AuthMode) authModeComboBox.getSelectedItem();
         String enteredPassword = new String(authPasswordField.getPassword());
-        currentAuthPasswordHash = BasicAuthConfig.chooseHashForSave(enteredPassword, currentAuthPasswordHash);
+        String enteredOauthToken = new String(oauthTokenField.getPassword());
+        currentBasicAuthPasswordHash = AuthConfig.chooseHashForSave(enteredPassword, currentBasicAuthPasswordHash);
+        currentOauthTokenHash = AuthConfig.chooseHashForSave(enteredOauthToken, currentOauthTokenHash);
 
-        BasicAuthConfig.persistAuthSettings(authEnabledCheckBox.isSelected(), authUsernameField.getText(), currentAuthPasswordHash);
+        AuthConfig.persistAuthSettings(authMode, authUsernameField.getText(), currentBasicAuthPasswordHash,
+            oauthIssuerField.getText(), oauthAudienceField.getText(), oauthClientIdField.getText(), currentOauthTokenHash);
 
         // Force preferences to be saved to disk
         Preferences.store();
@@ -408,8 +488,9 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         // Apply changes to the plugin
         plugin.applyConfiguration(hostField.getText(), (Integer) portSpinner.getValue(),
                                 enabledCheckBox.isSelected(), asyncEnabledCheckBox.isSelected(),
-                                allowDestructiveToolsCheckBox.isSelected(), authEnabledCheckBox.isSelected(),
+                                allowDestructiveToolsCheckBox.isSelected(), authMode,
                                 authUsernameField.getText(), enteredPassword,
+                                oauthIssuerField.getText(), oauthAudienceField.getText(), oauthClientIdField.getText(), enteredOauthToken,
                                 toolEnabledStates);
     }
     
@@ -486,8 +567,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         return allowDestructiveToolsCheckBox.isSelected();
     }
     
-    public boolean isBasicAuthEnabled() {
-        return authEnabledCheckBox.isSelected();
+    public AuthConfig.AuthMode getAuthMode() {
+        return (AuthConfig.AuthMode) authModeComboBox.getSelectedItem();
     }
 
     public String getAuthUsername() {

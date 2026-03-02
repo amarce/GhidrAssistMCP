@@ -95,11 +95,13 @@ public class GhidrAssistMCPPlugin extends ProgramPlugin {
 	 * Delegates to the singleton manager which handles server restart if needed.
 	 */
 	public void applyConfiguration(String host, int port, boolean enabled, boolean asyncEnabled,
-			boolean allowDestructiveTools, boolean authEnabled, String authUsername,
-			String authPassword, Map<String, Boolean> toolStates) {
+			boolean allowDestructiveTools, AuthConfig.AuthMode authMode, String authUsername,
+			String authPassword, String oauthIssuer, String oauthAudience, String oauthClientId,
+			String oauthToken, Map<String, Boolean> toolStates) {
 		if (manager != null) {
 			manager.applyConfiguration(host, port, enabled, asyncEnabled, allowDestructiveTools,
-				authEnabled, authUsername, authPassword, toolStates);
+				authMode, authUsername, authPassword, oauthIssuer, oauthAudience, oauthClientId,
+				oauthToken, toolStates);
 		}
 	}
 	
