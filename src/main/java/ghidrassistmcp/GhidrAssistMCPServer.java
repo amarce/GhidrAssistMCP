@@ -58,9 +58,9 @@ public class GhidrAssistMCPServer {
     private final String authUsername;
     private final String authPasswordHash;
     private final String oauthIssuer;
+    private final String oauthJwksUrl;
     private final String oauthAudience;
-    private final String oauthClientId;
-    private final String oauthTokenHash;
+    private final String oauthRequiredScope;
     
     public GhidrAssistMCPServer(String host, int port, McpBackend backend) {
         this(host, port, backend, null, AuthConfig.AuthMode.NONE, "", "", "", "", "", "");
@@ -72,7 +72,7 @@ public class GhidrAssistMCPServer {
 
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider,
                                 AuthConfig.AuthMode authMode, String authUsername, String authPasswordHash,
-                                String oauthIssuer, String oauthAudience, String oauthClientId, String oauthTokenHash) {
+                                String oauthIssuer, String oauthJwksUrl, String oauthAudience, String oauthRequiredScope) {
         this.host = host;
         this.port = port;
         this.backend = backend;
@@ -81,9 +81,9 @@ public class GhidrAssistMCPServer {
         this.authUsername = authUsername != null ? authUsername : "";
         this.authPasswordHash = authPasswordHash != null ? authPasswordHash : "";
         this.oauthIssuer = oauthIssuer != null ? oauthIssuer : "";
+        this.oauthJwksUrl = oauthJwksUrl != null ? oauthJwksUrl : "";
         this.oauthAudience = oauthAudience != null ? oauthAudience : "";
-        this.oauthClientId = oauthClientId != null ? oauthClientId : "";
-        this.oauthTokenHash = oauthTokenHash != null ? oauthTokenHash : "";
+        this.oauthRequiredScope = oauthRequiredScope != null ? oauthRequiredScope : "";
     }
     
     public void start() throws Exception {
@@ -241,8 +241,8 @@ public class GhidrAssistMCPServer {
             return new BasicAuthStrategy(authUsername, authPasswordHash);
         }
         if (authMode == AuthConfig.AuthMode.OAUTH) {
-            return new BearerAuthStrategy(oauthIssuer, oauthAudience, oauthClientId,
-                new StaticBearerTokenValidator(oauthTokenHash));
+            return new BearerAuthStrategy(oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope,
+                new NoOpBearerTokenValidator());
         }
         return new NoAuthStrategy();
     }
@@ -468,17 +468,27 @@ public class GhidrAssistMCPServer {
         }
     }
 
+    private static class NoOpBearerTokenValidator implements BearerTokenValidator {
+        @Override
+        public boolean validate(String token, HttpServletRequest request) {
+            return true;
+        }
+    }
+
     private static class BearerAuthStrategy implements AuthStrategy {
 
         private final String issuer;
+        private final String jwksUrl;
         private final String audience;
-        private final String clientId;
+        private final String requiredScope;
         private final BearerTokenValidator tokenValidator;
 
-        BearerAuthStrategy(String issuer, String audience, String clientId, BearerTokenValidator tokenValidator) {
+        BearerAuthStrategy(String issuer, String jwksUrl, String audience, String requiredScope,
+                BearerTokenValidator tokenValidator) {
             this.issuer = issuer != null ? issuer : "";
+            this.jwksUrl = jwksUrl != null ? jwksUrl : "";
             this.audience = audience != null ? audience : "";
-            this.clientId = clientId != null ? clientId : "";
+            this.requiredScope = requiredScope != null ? requiredScope : "";
             this.tokenValidator = tokenValidator;
         }
 
@@ -516,8 +526,11 @@ public class GhidrAssistMCPServer {
             if (!audience.isEmpty()) {
                 challenge.add("audience=\"" + audience + "\"");
             }
-            if (!clientId.isEmpty()) {
-                challenge.add("client_id=\"" + clientId + "\"");
+            if (!jwksUrl.isEmpty()) {
+                challenge.add("jwks_uri=\"" + jwksUrl + "\"");
+            }
+            if (!requiredScope.isEmpty()) {
+                challenge.add("scope=\"" + requiredScope + "\"");
             }
 
             response.setHeader("WWW-Authenticate", challenge.toString());

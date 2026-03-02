@@ -475,7 +475,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         currentOauthTokenHash = AuthConfig.chooseHashForSave(enteredOauthToken, currentOauthTokenHash);
 
         AuthConfig.persistAuthSettings(authMode, authUsernameField.getText(), currentBasicAuthPasswordHash,
-            oauthIssuerField.getText(), oauthAudienceField.getText(), oauthClientIdField.getText(), currentOauthTokenHash);
+            oauthIssuerField.getText(), oauthAudienceField.getText(), oauthClientIdField.getText(), enteredOauthToken,
+            oauthClientIdField.getText(), currentOauthTokenHash);
 
         // Force preferences to be saved to disk
         Preferences.store();
