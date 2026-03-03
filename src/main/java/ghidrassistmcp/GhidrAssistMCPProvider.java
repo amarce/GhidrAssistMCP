@@ -56,21 +56,21 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private JTabbedPane tabbedPane;
     
     // Configuration tab components
-    private JTextField hostField;
-    private JSpinner portSpinner;
-    private JCheckBox enabledCheckBox;
-    private JCheckBox asyncEnabledCheckBox;
-    private JCheckBox allowDestructiveToolsCheckBox;
-    private JComboBox<AuthConfig.AuthMode> authModeComboBox;
-    private JPanel basicAuthPanel;
-    private JPanel oauthPanel;
-    private JTextField authUsernameField;
-    private JPasswordField authPasswordField;
-    private JTextField oauthIssuerField;
-    private JTextField oauthJwksUrlField;
-    private JTextField oauthAudienceField;
-    private JTextField oauthRequiredScopeField;
-    private JTextField oauthCallbackIdField;
+    private JTextField hostField = new JTextField(DEFAULT_HOST, 20);
+    private JSpinner portSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_PORT, 1, 65535, 1));
+    private JCheckBox enabledCheckBox = new JCheckBox("Enable MCP Server", DEFAULT_ENABLED);
+    private JCheckBox asyncEnabledCheckBox = new JCheckBox("Enable async tool execution", DEFAULT_ASYNC_ENABLED);
+    private JCheckBox allowDestructiveToolsCheckBox = new JCheckBox("Allow destructive tools globally", DEFAULT_ALLOW_DESTRUCTIVE_TOOLS);
+    private JComboBox<AuthConfig.AuthMode> authModeComboBox = new JComboBox<>(AuthConfig.AuthMode.values());
+    private JPanel basicAuthPanel = new JPanel();
+    private JPanel oauthPanel = new JPanel();
+    private JTextField authUsernameField = new JTextField(DEFAULT_AUTH_USERNAME, 20);
+    private JPasswordField authPasswordField = new JPasswordField("", 20);
+    private JTextField oauthIssuerField = new JTextField("", 20);
+    private JTextField oauthJwksUrlField = new JTextField("", 20);
+    private JTextField oauthAudienceField = new JTextField("", 20);
+    private JTextField oauthRequiredScopeField = new JTextField("", 20);
+    private JTextField oauthCallbackIdField = new JTextField("", 20);
     private JTable toolsTable;
     private DefaultTableModel toolsTableModel;
     private JButton saveButton;
