@@ -280,7 +280,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         panel.add(new JLabel("Callback ID (optional):"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
         oauthCallbackIdField = new JTextField("", 20);
-        oauthCallbackIdField.setToolTipText("Some clients may require callback_id for OAuth connector setup.");
+        oauthCallbackIdField.setToolTipText("Set this to the ChatGPT callback identifier from app management/redirect URI; do not use Auth0 audience or scope values.");
         panel.add(oauthCallbackIdField, gbc);
 
         return panel;
