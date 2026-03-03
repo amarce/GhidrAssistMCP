@@ -56,26 +56,26 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private JTabbedPane tabbedPane;
     
     // Configuration tab components
-    private JTextField hostField;
-    private JSpinner portSpinner;
-    private JCheckBox enabledCheckBox;
-    private JCheckBox asyncEnabledCheckBox;
-    private JCheckBox allowDestructiveToolsCheckBox;
-    private JComboBox<AuthConfig.AuthMode> authModeComboBox;
-    private JPanel basicAuthPanel;
-    private JPanel oauthPanel;
-    private JTextField authUsernameField;
-    private JPasswordField authPasswordField;
-    private JTextField oauthIssuerField;
-    private JTextField oauthAudienceField;
-    private JTextField oauthClientIdField;
-    private JPasswordField oauthTokenField;
+    private JTextField hostField = new JTextField(DEFAULT_HOST, 20);
+    private JSpinner portSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_PORT, 1, 65535, 1));
+    private JCheckBox enabledCheckBox = new JCheckBox("Enable MCP Server", DEFAULT_ENABLED);
+    private JCheckBox asyncEnabledCheckBox = new JCheckBox("Enable async tool execution", DEFAULT_ASYNC_ENABLED);
+    private JCheckBox allowDestructiveToolsCheckBox = new JCheckBox("Allow destructive tools globally", DEFAULT_ALLOW_DESTRUCTIVE_TOOLS);
+    private JComboBox<AuthConfig.AuthMode> authModeComboBox = new JComboBox<>(AuthConfig.AuthMode.values());
+    private JPanel basicAuthPanel = new JPanel();
+    private JPanel oauthPanel = new JPanel();
+    private JTextField authUsernameField = new JTextField(DEFAULT_AUTH_USERNAME, 20);
+    private JPasswordField authPasswordField = new JPasswordField("", 20);
+    private JTextField oauthIssuerField = new JTextField("", 20);
+    private JTextField oauthJwksUrlField = new JTextField("", 20);
+    private JTextField oauthAudienceField = new JTextField("", 20);
+    private JTextField oauthRequiredScopeField = new JTextField("", 20);
+    private JTextField oauthCallbackIdField = new JTextField("", 20);
     private JTable toolsTable;
     private DefaultTableModel toolsTableModel;
     private JButton saveButton;
     private Map<String, Boolean> toolEnabledStates;
     private String currentBasicAuthPasswordHash = "";
-    private String currentOauthTokenHash = "";
     
     // Log tab components
     private JTextArea logTextArea;
@@ -253,28 +253,35 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
 
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0; gbc.gridy = 0; gbc.anchor = GridBagConstraints.WEST;
-        panel.add(new JLabel("Issuer:"), gbc);
+        panel.add(new JLabel("Issuer URL:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
         oauthIssuerField = new JTextField("", 20);
         panel.add(oauthIssuerField, gbc);
 
         gbc.gridx = 0; gbc.gridy = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("JWKS URL (optional):"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthJwksUrlField = new JTextField("", 20);
+        panel.add(oauthJwksUrlField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Audience:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
         oauthAudienceField = new JTextField("", 20);
         panel.add(oauthAudienceField, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("Client ID:"), gbc);
-        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
-        oauthClientIdField = new JTextField("", 20);
-        panel.add(oauthClientIdField, gbc);
-
         gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
-        panel.add(new JLabel("Bearer Token:"), gbc);
+        panel.add(new JLabel("Required Scope (optional):"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
-        oauthTokenField = new JPasswordField("", 20);
-        panel.add(oauthTokenField, gbc);
+        oauthRequiredScopeField = new JTextField("", 20);
+        panel.add(oauthRequiredScopeField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 4; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Callback ID (optional):"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthCallbackIdField = new JTextField("", 20);
+        oauthCallbackIdField.setToolTipText("Some clients may require callback_id for OAuth connector setup.");
+        panel.add(oauthCallbackIdField, gbc);
 
         return panel;
     }
@@ -394,19 +401,15 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
             Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.AUTH_MODE_SETTING), "none"));
         String authUsername = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_USERNAME_SETTING), DEFAULT_AUTH_USERNAME);
         String oauthIssuer = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_ISSUER_SETTING), "");
+        String oauthJwksUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_JWKS_URL_SETTING), "");
         String oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
-        String oauthClientId = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_CLIENT_ID_SETTING), "");
+        String oauthRequiredScope = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_REQUIRED_SCOPE_SETTING), "");
+        String oauthCallbackId = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_CALLBACK_ID_SETTING), "");
 
         currentBasicAuthPasswordHash = AuthConfig.resolveBasicPasswordHash();
         String legacyBasicPassword = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_PASSWORD_SETTING), "");
         String authPassword = (!legacyBasicPassword.isEmpty() && currentBasicAuthPasswordHash.isEmpty())
             ? legacyBasicPassword
-            : "";
-
-        currentOauthTokenHash = AuthConfig.resolveOauthTokenHash();
-        String legacyOauthToken = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_BEARER_TOKEN_SETTING), "");
-        String oauthToken = (!legacyOauthToken.isEmpty() && currentOauthTokenHash.isEmpty())
-            ? legacyOauthToken
             : "";
 
         int port = DEFAULT_PORT;
@@ -431,9 +434,10 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         authUsernameField.setText(authUsername);
         authPasswordField.setText(authPassword);
         oauthIssuerField.setText(oauthIssuer);
+        oauthJwksUrlField.setText(oauthJwksUrl);
         oauthAudienceField.setText(oauthAudience);
-        oauthClientIdField.setText(oauthClientId);
-        oauthTokenField.setText(oauthToken);
+        oauthRequiredScopeField.setText(oauthRequiredScope);
+        oauthCallbackIdField.setText(oauthCallbackId);
         updateAuthFieldVisibility();
 
         // Load tool enabled states from tool options
@@ -470,13 +474,11 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         Preferences.setProperty(SETTINGS_CATEGORY + "." + ALLOW_DESTRUCTIVE_TOOLS_SETTING, String.valueOf(allowDestructiveToolsCheckBox.isSelected()));
         AuthConfig.AuthMode authMode = (AuthConfig.AuthMode) authModeComboBox.getSelectedItem();
         String enteredPassword = new String(authPasswordField.getPassword());
-        String enteredOauthToken = new String(oauthTokenField.getPassword());
         currentBasicAuthPasswordHash = AuthConfig.chooseHashForSave(enteredPassword, currentBasicAuthPasswordHash);
-        currentOauthTokenHash = AuthConfig.chooseHashForSave(enteredOauthToken, currentOauthTokenHash);
 
         AuthConfig.persistAuthSettings(authMode, authUsernameField.getText(), currentBasicAuthPasswordHash,
-            oauthIssuerField.getText(), oauthAudienceField.getText(), oauthClientIdField.getText(), enteredOauthToken,
-            oauthClientIdField.getText(), currentOauthTokenHash);
+            oauthIssuerField.getText(), oauthJwksUrlField.getText(), oauthAudienceField.getText(),
+            oauthRequiredScopeField.getText(), oauthCallbackIdField.getText(), "", "");
 
         // Force preferences to be saved to disk
         Preferences.store();
@@ -499,7 +501,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
                                 enabledCheckBox.isSelected(), asyncEnabledCheckBox.isSelected(),
                                 allowDestructiveToolsCheckBox.isSelected(), authMode,
                                 authUsernameField.getText(), enteredPassword,
-                                oauthIssuerField.getText(), oauthAudienceField.getText(), oauthClientIdField.getText(), enteredOauthToken,
+                                oauthIssuerField.getText(), oauthJwksUrlField.getText(), oauthAudienceField.getText(),
+                                oauthRequiredScopeField.getText(), oauthCallbackIdField.getText(),
                                 toolEnabledStates);
     }
     

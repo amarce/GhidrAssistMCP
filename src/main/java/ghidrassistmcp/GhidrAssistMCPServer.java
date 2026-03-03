@@ -72,19 +72,21 @@ public class GhidrAssistMCPServer {
     private final String oauthJwksUrl;
     private final String oauthAudience;
     private final String oauthRequiredScope;
+    private final String oauthCallbackId;
     private final ObjectMapper objectMapper;
     
     public GhidrAssistMCPServer(String host, int port, McpBackend backend) {
-        this(host, port, backend, null, AuthConfig.AuthMode.NONE, "", "", "", "", "", "");
+        this(host, port, backend, null, AuthConfig.AuthMode.NONE, "", "", "", "", "", "", "");
     }
 
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider) {
-        this(host, port, backend, provider, AuthConfig.AuthMode.NONE, "", "", "", "", "", "");
+        this(host, port, backend, provider, AuthConfig.AuthMode.NONE, "", "", "", "", "", "", "");
     }
 
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider,
                                 AuthConfig.AuthMode authMode, String authUsername, String authPasswordHash,
-                                String oauthIssuer, String oauthJwksUrl, String oauthAudience, String oauthRequiredScope) {
+                                String oauthIssuer, String oauthJwksUrl, String oauthAudience, String oauthRequiredScope,
+                                String oauthCallbackId) {
         this.host = host;
         this.port = port;
         this.backend = backend;
@@ -96,6 +98,7 @@ public class GhidrAssistMCPServer {
         this.oauthJwksUrl = oauthJwksUrl != null ? oauthJwksUrl : "";
         this.oauthAudience = oauthAudience != null ? oauthAudience : "";
         this.oauthRequiredScope = oauthRequiredScope != null ? oauthRequiredScope : "";
+        this.oauthCallbackId = oauthCallbackId != null ? oauthCallbackId : "";
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
@@ -137,10 +140,12 @@ public class GhidrAssistMCPServer {
 
             if (authMode == AuthConfig.AuthMode.OAUTH) {
                 OAuthMetadataServlet oauthMetadataServlet = new OAuthMetadataServlet(
-                    host, port, oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, objectMapper);
+                    host, port, oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, oauthCallbackId, objectMapper);
                 ServletHolder oauthMetadataHolder = new ServletHolder("oauth-metadata", oauthMetadataServlet);
                 context.addServlet(oauthMetadataHolder, "/.well-known/oauth-protected-resource");
+                context.addServlet(oauthMetadataHolder, "/.well-known/oauth-protected-resource/mcp");
                 context.addServlet(oauthMetadataHolder, "/.well-known/oauth-authorization-server");
+                context.addServlet(oauthMetadataHolder, "/mcp/.well-known/oauth-authorization-server");
             }
 
             HttpServletSseServerTransportProvider sseTransportProvider =
@@ -264,7 +269,7 @@ public class GhidrAssistMCPServer {
         }
         if (authMode == AuthConfig.AuthMode.OAUTH) {
             return new BearerAuthStrategy(oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope,
-                new JwtBearerTokenValidator(oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, objectMapper));
+                oauthCallbackId, new JwtBearerTokenValidator(oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, objectMapper));
         }
         return new NoAuthStrategy();
     }
@@ -616,16 +621,18 @@ public class GhidrAssistMCPServer {
         private final String jwksUrl;
         private final String audience;
         private final String requiredScope;
+        private final String callbackId;
         private final ObjectMapper objectMapper;
 
         OAuthMetadataServlet(String host, int port, String issuer, String jwksUrl, String audience,
-                String requiredScope, ObjectMapper objectMapper) {
+                String requiredScope, String callbackId, ObjectMapper objectMapper) {
             this.host = host;
             this.port = port;
             this.issuer = issuer != null ? issuer : "";
             this.jwksUrl = jwksUrl != null ? jwksUrl : "";
             this.audience = audience != null ? audience : "";
             this.requiredScope = requiredScope != null ? requiredScope : "";
+            this.callbackId = callbackId != null ? callbackId : "";
             this.objectMapper = objectMapper;
         }
 
@@ -635,7 +642,7 @@ public class GhidrAssistMCPServer {
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 
             String uri = request.getRequestURI();
-            if ("/.well-known/oauth-protected-resource".equals(uri)) {
+            if ("/.well-known/oauth-protected-resource".equals(uri) || "/.well-known/oauth-protected-resource/mcp".equals(uri)) {
                 Map<String, Object> metadata = new HashMap<>();
                 metadata.put("resource", "http://" + host + ":" + port);
                 if (!issuer.isEmpty()) {
@@ -645,11 +652,14 @@ public class GhidrAssistMCPServer {
                 if (!requiredScope.isEmpty()) {
                     metadata.put("scopes_supported", List.of(requiredScope));
                 }
+                if (!callbackId.isEmpty()) {
+                    metadata.put("callback_id", callbackId);
+                }
                 objectMapper.writeValue(response.getWriter(), metadata);
                 return;
             }
 
-            if ("/.well-known/oauth-authorization-server".equals(uri)) {
+            if ("/.well-known/oauth-authorization-server".equals(uri) || "/mcp/.well-known/oauth-authorization-server".equals(uri)) {
                 Map<String, Object> metadata = new HashMap<>();
                 metadata.put("issuer", issuer);
                 if (!jwksUrl.isEmpty()) {
@@ -660,6 +670,9 @@ public class GhidrAssistMCPServer {
                 }
                 if (!requiredScope.isEmpty()) {
                     metadata.put("scopes_supported", List.of(requiredScope));
+                }
+                if (!callbackId.isEmpty()) {
+                    metadata.put("callback_id", callbackId);
                 }
                 objectMapper.writeValue(response.getWriter(), metadata);
                 return;
@@ -675,14 +688,16 @@ public class GhidrAssistMCPServer {
         private final String jwksUrl;
         private final String audience;
         private final String requiredScope;
+        private final String callbackId;
         private final BearerTokenValidator tokenValidator;
 
         BearerAuthStrategy(String issuer, String jwksUrl, String audience, String requiredScope,
-                BearerTokenValidator tokenValidator) {
+                String callbackId, BearerTokenValidator tokenValidator) {
             this.issuer = issuer != null ? issuer : "";
             this.jwksUrl = jwksUrl != null ? jwksUrl : "";
             this.audience = audience != null ? audience : "";
             this.requiredScope = requiredScope != null ? requiredScope : "";
+            this.callbackId = callbackId != null ? callbackId : "";
             this.tokenValidator = tokenValidator;
         }
 
@@ -725,6 +740,9 @@ public class GhidrAssistMCPServer {
             }
             if (!requiredScope.isEmpty()) {
                 challenge.add("scope=\"" + requiredScope + "\"");
+            }
+            if (!callbackId.isEmpty()) {
+                challenge.add("callback_id=\"" + callbackId + "\"");
             }
 
             response.setHeader("WWW-Authenticate", challenge.toString());
