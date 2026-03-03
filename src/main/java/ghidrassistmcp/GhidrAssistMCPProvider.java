@@ -70,6 +70,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private JTextField oauthJwksUrlField = new JTextField("", 20);
     private JTextField oauthAudienceField = new JTextField("", 20);
     private JTextField oauthRequiredScopeField = new JTextField("", 20);
+    private JTextField oauthPublicBaseUrlField = new JTextField("", 20);
+    private JCheckBox oauthTrustForwardedHeadersCheckBox = new JCheckBox("Trust X-Forwarded-* headers for discovery URLs", false);
     private JTextField oauthCallbackIdField = new JTextField("", 20);
     private JTable toolsTable;
     private DefaultTableModel toolsTableModel;
@@ -267,8 +269,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Audience:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
-        oauthJwksUrlField = new JTextField("", 20);
-        panel.add(oauthJwksUrlField, gbc);
+        oauthAudienceField = new JTextField("", 20);
+        panel.add(oauthAudienceField, gbc);
 
         gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Required Scope (optional):"), gbc);
@@ -277,6 +279,18 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         panel.add(oauthRequiredScopeField, gbc);
 
         gbc.gridx = 0; gbc.gridy = 4; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Public Base URL (optional):"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthPublicBaseUrlField = new JTextField("", 20);
+        oauthPublicBaseUrlField.setToolTipText("Used for OAuth metadata and discovery URLs when server is behind a reverse proxy (for example: https://ghidramcp.example.com)");
+        panel.add(oauthPublicBaseUrlField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthTrustForwardedHeadersCheckBox = new JCheckBox("Trust X-Forwarded-* headers for discovery URLs", false);
+        oauthTrustForwardedHeadersCheckBox.setToolTipText("Enable only when running behind a trusted reverse proxy that sets X-Forwarded-Proto/Host.");
+        panel.add(oauthTrustForwardedHeadersCheckBox, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 6; gbc.gridwidth = 1; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Callback ID (optional):"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
         oauthCallbackIdField = new JTextField("", 20);
@@ -404,6 +418,9 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         String oauthJwksUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_JWKS_URL_SETTING), "");
         String oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
         String oauthRequiredScope = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_REQUIRED_SCOPE_SETTING), "");
+        String oauthPublicBaseUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_PUBLIC_BASE_URL_SETTING), "");
+        boolean oauthTrustForwardedHeaders = Boolean.parseBoolean(
+            Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_TRUST_FORWARDED_HEADERS_SETTING), "false"));
         String oauthCallbackId = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_CALLBACK_ID_SETTING), "");
 
         currentBasicAuthPasswordHash = AuthConfig.resolveBasicPasswordHash();
@@ -437,6 +454,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         oauthJwksUrlField.setText(oauthJwksUrl);
         oauthAudienceField.setText(oauthAudience);
         oauthRequiredScopeField.setText(oauthRequiredScope);
+        oauthPublicBaseUrlField.setText(oauthPublicBaseUrl);
+        oauthTrustForwardedHeadersCheckBox.setSelected(oauthTrustForwardedHeaders);
         oauthCallbackIdField.setText(oauthCallbackId);
         updateAuthFieldVisibility();
 
@@ -478,7 +497,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
 
         AuthConfig.persistAuthSettings(authMode, authUsernameField.getText(), currentBasicAuthPasswordHash,
             oauthIssuerField.getText(), oauthJwksUrlField.getText(), oauthAudienceField.getText(),
-            oauthRequiredScopeField.getText(), oauthCallbackIdField.getText(), "", "");
+            oauthRequiredScopeField.getText(), oauthPublicBaseUrlField.getText(),
+            oauthTrustForwardedHeadersCheckBox.isSelected(), oauthCallbackIdField.getText(), "", "");
 
         // Force preferences to be saved to disk
         Preferences.store();
@@ -502,7 +522,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
                                 allowDestructiveToolsCheckBox.isSelected(), authMode,
                                 authUsernameField.getText(), enteredPassword,
                                 oauthIssuerField.getText(), oauthJwksUrlField.getText(), oauthAudienceField.getText(),
-                                oauthRequiredScopeField.getText(), oauthCallbackIdField.getText(),
+                                oauthRequiredScopeField.getText(), oauthPublicBaseUrlField.getText(),
+                                oauthTrustForwardedHeadersCheckBox.isSelected(), oauthCallbackIdField.getText(),
                                 toolEnabledStates);
     }
     

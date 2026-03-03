@@ -19,6 +19,8 @@ public final class AuthConfig {
     public static final String OAUTH_AUDIENCE_SETTING = "OAuth Audience";
     public static final String OAUTH_REQUIRED_SCOPE_SETTING = "OAuth Required Scope";
     public static final String OAUTH_CALLBACK_ID_SETTING = "OAuth Callback Id";
+    public static final String OAUTH_PUBLIC_BASE_URL_SETTING = "OAuth Public Base URL";
+    public static final String OAUTH_TRUST_FORWARDED_HEADERS_SETTING = "OAuth Trust X-Forwarded Headers";
 
     // Legacy settings kept for backwards compatibility with existing preferences.
     public static final String OAUTH_CLIENT_ID_SETTING = "OAuth Client Id";
@@ -91,6 +93,8 @@ public final class AuthConfig {
                                            String oauthJwksUrl,
                                            String oauthAudience,
                                            String oauthRequiredScope,
+                                           String oauthPublicBaseUrl,
+                                           boolean oauthTrustForwardedHeaders,
                                            String oauthCallbackId,
                                            String oauthClientId,
                                            String oauthTokenHash) {
@@ -101,6 +105,8 @@ public final class AuthConfig {
         Preferences.setProperty(getQualifiedKey(OAUTH_JWKS_URL_SETTING), oauthJwksUrl != null ? oauthJwksUrl : "");
         Preferences.setProperty(getQualifiedKey(OAUTH_AUDIENCE_SETTING), oauthAudience != null ? oauthAudience : "");
         Preferences.setProperty(getQualifiedKey(OAUTH_REQUIRED_SCOPE_SETTING), oauthRequiredScope != null ? oauthRequiredScope : "");
+        Preferences.setProperty(getQualifiedKey(OAUTH_PUBLIC_BASE_URL_SETTING), oauthPublicBaseUrl != null ? oauthPublicBaseUrl : "");
+        Preferences.setProperty(getQualifiedKey(OAUTH_TRUST_FORWARDED_HEADERS_SETTING), String.valueOf(oauthTrustForwardedHeaders));
         Preferences.setProperty(getQualifiedKey(OAUTH_CALLBACK_ID_SETTING), oauthCallbackId != null ? oauthCallbackId : "");
 
         // Backward compatibility: still persist legacy settings.

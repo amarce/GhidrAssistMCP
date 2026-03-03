@@ -72,20 +72,23 @@ public class GhidrAssistMCPServer {
     private final String oauthJwksUrl;
     private final String oauthAudience;
     private final String oauthRequiredScope;
+    private final String oauthPublicBaseUrl;
+    private final boolean oauthTrustForwardedHeaders;
     private final String oauthCallbackId;
     private final ObjectMapper objectMapper;
     
     public GhidrAssistMCPServer(String host, int port, McpBackend backend) {
-        this(host, port, backend, null, AuthConfig.AuthMode.NONE, "", "", "", "", "", "", "");
+        this(host, port, backend, null, AuthConfig.AuthMode.NONE, "", "", "", "", "", "", "", false, "");
     }
 
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider) {
-        this(host, port, backend, provider, AuthConfig.AuthMode.NONE, "", "", "", "", "", "", "");
+        this(host, port, backend, provider, AuthConfig.AuthMode.NONE, "", "", "", "", "", "", "", false, "");
     }
 
     public GhidrAssistMCPServer(String host, int port, McpBackend backend, GhidrAssistMCPProvider provider,
                                 AuthConfig.AuthMode authMode, String authUsername, String authPasswordHash,
                                 String oauthIssuer, String oauthJwksUrl, String oauthAudience, String oauthRequiredScope,
+                                String oauthPublicBaseUrl, boolean oauthTrustForwardedHeaders,
                                 String oauthCallbackId) {
         this.host = host;
         this.port = port;
@@ -98,6 +101,8 @@ public class GhidrAssistMCPServer {
         this.oauthJwksUrl = oauthJwksUrl != null ? oauthJwksUrl : "";
         this.oauthAudience = oauthAudience != null ? oauthAudience : "";
         this.oauthRequiredScope = oauthRequiredScope != null ? oauthRequiredScope : "";
+        this.oauthPublicBaseUrl = oauthPublicBaseUrl != null ? oauthPublicBaseUrl : "";
+        this.oauthTrustForwardedHeaders = oauthTrustForwardedHeaders;
         this.oauthCallbackId = oauthCallbackId != null ? oauthCallbackId : "";
         this.objectMapper = new ObjectMapper();
         this.objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -140,7 +145,8 @@ public class GhidrAssistMCPServer {
 
             if (authMode == AuthConfig.AuthMode.OAUTH) {
                 OAuthMetadataServlet oauthMetadataServlet = new OAuthMetadataServlet(
-                    host, port, oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, objectMapper);
+                    host, port, oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope,
+                    oauthPublicBaseUrl, oauthTrustForwardedHeaders, objectMapper);
                 ServletHolder oauthMetadataHolder = new ServletHolder("oauth-metadata", oauthMetadataServlet);
                 context.addServlet(oauthMetadataHolder, "/.well-known/oauth-protected-resource");
                 context.addServlet(oauthMetadataHolder, "/.well-known/oauth-protected-resource/mcp");
@@ -269,6 +275,7 @@ public class GhidrAssistMCPServer {
         }
         if (authMode == AuthConfig.AuthMode.OAUTH) {
             return new BearerAuthStrategy(oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope,
+                oauthPublicBaseUrl, oauthTrustForwardedHeaders,
                 new JwtBearerTokenValidator(oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, objectMapper));
         }
         return new NoAuthStrategy();
@@ -621,16 +628,21 @@ public class GhidrAssistMCPServer {
         private final String jwksUrl;
         private final String audience;
         private final String requiredScope;
+        private final String publicBaseUrl;
+        private final boolean trustForwardedHeaders;
         private final ObjectMapper objectMapper;
 
         OAuthMetadataServlet(String host, int port, String issuer, String jwksUrl, String audience,
-                String requiredScope, ObjectMapper objectMapper) {
+                String requiredScope, String publicBaseUrl, boolean trustForwardedHeaders,
+                ObjectMapper objectMapper) {
             this.host = host;
             this.port = port;
             this.issuer = issuer != null ? issuer : "";
             this.jwksUrl = jwksUrl != null ? jwksUrl : "";
             this.audience = audience != null ? audience : "";
             this.requiredScope = requiredScope != null ? requiredScope : "";
+            this.publicBaseUrl = publicBaseUrl != null ? publicBaseUrl : "";
+            this.trustForwardedHeaders = trustForwardedHeaders;
             this.objectMapper = objectMapper;
         }
 
@@ -640,9 +652,10 @@ public class GhidrAssistMCPServer {
             response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 
             String uri = request.getRequestURI();
+            String resolvedBaseUrl = resolveBaseUrl(request);
             if ("/.well-known/oauth-protected-resource".equals(uri) || "/.well-known/oauth-protected-resource/mcp".equals(uri)) {
                 Map<String, Object> metadata = new HashMap<>();
-                metadata.put("resource", "http://" + host + ":" + port);
+                metadata.put("resource", resolvedBaseUrl);
                 if (!issuer.isEmpty()) {
                     metadata.put("authorization_servers", List.of(issuer));
                     metadata.put("bearer_methods_supported", List.of("header"));
@@ -672,6 +685,41 @@ public class GhidrAssistMCPServer {
 
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
         }
+
+        private String resolveBaseUrl(HttpServletRequest request) {
+            if (!publicBaseUrl.isBlank()) {
+                return trimSlash(publicBaseUrl);
+            }
+            if (trustForwardedHeaders) {
+                String forwardedUrl = deriveFromForwardedHeaders(request);
+                if (!forwardedUrl.isEmpty()) {
+                    return forwardedUrl;
+                }
+            }
+            return "http://" + host + ":" + port;
+        }
+
+        private String deriveFromForwardedHeaders(HttpServletRequest request) {
+            String forwardedProto = firstHeaderValue(request.getHeader("X-Forwarded-Proto"));
+            String forwardedHost = firstHeaderValue(request.getHeader("X-Forwarded-Host"));
+            if (forwardedProto == null || forwardedProto.isBlank() || forwardedHost == null || forwardedHost.isBlank()) {
+                return "";
+            }
+            return trimSlash(forwardedProto.trim().toLowerCase()) + "://" + trimSlash(forwardedHost.trim());
+        }
+
+        private String firstHeaderValue(String value) {
+            if (value == null || value.isBlank()) {
+                return "";
+            }
+            int commaIndex = value.indexOf(',');
+            String first = commaIndex >= 0 ? value.substring(0, commaIndex) : value;
+            return first.trim();
+        }
+
+        private String trimSlash(String value) {
+            return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+        }
     }
 
     private static class BearerAuthStrategy implements AuthStrategy {
@@ -680,14 +728,19 @@ public class GhidrAssistMCPServer {
         private final String jwksUrl;
         private final String audience;
         private final String requiredScope;
+        private final String publicBaseUrl;
+        private final boolean trustForwardedHeaders;
         private final BearerTokenValidator tokenValidator;
 
         BearerAuthStrategy(String issuer, String jwksUrl, String audience, String requiredScope,
+                String publicBaseUrl, boolean trustForwardedHeaders,
                 BearerTokenValidator tokenValidator) {
             this.issuer = issuer != null ? issuer : "";
             this.jwksUrl = jwksUrl != null ? jwksUrl : "";
             this.audience = audience != null ? audience : "";
             this.requiredScope = requiredScope != null ? requiredScope : "";
+            this.publicBaseUrl = publicBaseUrl != null ? publicBaseUrl : "";
+            this.trustForwardedHeaders = trustForwardedHeaders;
             this.tokenValidator = tokenValidator;
         }
 
@@ -742,29 +795,37 @@ public class GhidrAssistMCPServer {
         }
 
         private String buildResourceMetadataUrl(HttpServletRequest request) {
-            String scheme = extractForwardedOrDefault(request, "X-Forwarded-Proto", request.getScheme());
-            String hostHeader = extractForwardedOrDefault(request, "X-Forwarded-Host", request.getHeader("Host"));
+            if (!publicBaseUrl.isBlank()) {
+                return trimTrailingSlash(publicBaseUrl) + "/.well-known/oauth-protected-resource";
+            }
+            if (trustForwardedHeaders) {
+                String forwardedProto = firstHeaderValue(request.getHeader("X-Forwarded-Proto"));
+                String forwardedHost = firstHeaderValue(request.getHeader("X-Forwarded-Host"));
+                if (!forwardedProto.isBlank() && !forwardedHost.isBlank()) {
+                    return forwardedProto.toLowerCase() + "://" + forwardedHost + "/.well-known/oauth-protected-resource";
+                }
+            }
+
+            String hostHeader = request.getHeader("Host");
             if (hostHeader == null || hostHeader.isBlank()) {
                 return "";
             }
-
-            String normalizedScheme = (scheme == null || scheme.isBlank()) ? "http" : firstHeaderValue(scheme);
-            String normalizedHost = firstHeaderValue(hostHeader);
-            return normalizedScheme + "://" + normalizedHost + "/.well-known/oauth-protected-resource";
-        }
-
-        private String extractForwardedOrDefault(HttpServletRequest request, String headerName, String fallback) {
-            String headerValue = request.getHeader(headerName);
-            if (headerValue == null || headerValue.isBlank()) {
-                return fallback;
-            }
-            return headerValue;
+            String scheme = request.getScheme();
+            String normalizedScheme = (scheme == null || scheme.isBlank()) ? "http" : scheme;
+            return normalizedScheme + "://" + firstHeaderValue(hostHeader) + "/.well-known/oauth-protected-resource";
         }
 
         private String firstHeaderValue(String value) {
+            if (value == null || value.isBlank()) {
+                return "";
+            }
             int commaIndex = value.indexOf(',');
             String first = commaIndex >= 0 ? value.substring(0, commaIndex) : value;
             return first.trim();
+        }
+
+        private String trimTrailingSlash(String value) {
+            return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
         }
     }
 }
