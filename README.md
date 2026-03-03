@@ -116,6 +116,21 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
 - Use **`none`** for local/dev workflows where your MCP server is only reachable in a trusted environment.
 - Use **`oauth`** for OpenAI-hosted MCP connections so clients can authenticate with `Authorization: Bearer <token>`.
 
+### Deployment behind a reverse proxy
+
+When your MCP server is published through Nginx/Caddy/Cloudflare (or any TLS terminator), the external URL is often different from the local bind address (`http://localhost:8080`).
+
+- Set **Public Base URL** in OAuth settings to your externally reachable origin (for example `https://ghidramcp.amarce.me`).
+  - This value is used for OAuth protected-resource metadata (`resource`) and discovery URLs emitted in authentication headers (such as `WWW-Authenticate: ... resource_metadata=...`).
+- If you cannot set a fixed public URL, enable **Trust X-Forwarded-* headers for discovery URLs**.
+  - This makes metadata/discovery URLs derive scheme/host from `X-Forwarded-Proto` and `X-Forwarded-Host`.
+  - Enable this **only** behind a trusted proxy that strips/spoofs these headers from untrusted clients.
+
+Typical reverse proxy behavior should include forwarding:
+
+- `X-Forwarded-Proto: https`
+- `X-Forwarded-Host: <public-hostname>`
+
 ### Troubleshooting: OpenAI "OAuth required" / Basic Auth incompatibility
 
 - **Symptom**: Your client (including OpenAI-hosted tools) says **"OAuth required"** even when you expect mixed-mode behavior.

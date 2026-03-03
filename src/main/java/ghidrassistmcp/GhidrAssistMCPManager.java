@@ -51,6 +51,8 @@ public class GhidrAssistMCPManager {
     private String oauthJwksUrl = "";
     private String oauthAudience = "";
     private String oauthRequiredScope = "";
+    private String oauthPublicBaseUrl = "";
+    private boolean oauthTrustForwardedHeaders = false;
     private String oauthCallbackId = "";
 
     /**
@@ -322,7 +324,8 @@ public class GhidrAssistMCPManager {
                                    boolean allowDestructiveTools, AuthConfig.AuthMode newAuthMode,
                                    String newAuthUsername, String newAuthPassword,
                                    String newOauthIssuer, String newOauthJwksUrl, String newOauthAudience,
-                                   String newOauthRequiredScope, String newOauthCallbackId,
+                                   String newOauthRequiredScope, String newOauthPublicBaseUrl,
+                                   boolean newOauthTrustForwardedHeaders, String newOauthCallbackId,
                                    java.util.Map<String, Boolean> toolStates) {
         if (provider != null) {
             provider.logMessage("Applying configuration: " + host + ":" + port + " enabled=" + enabled +
@@ -350,11 +353,16 @@ public class GhidrAssistMCPManager {
         String normalizedOauthJwksUrl = newOauthJwksUrl != null ? newOauthJwksUrl : "";
         String normalizedOauthAudience = newOauthAudience != null ? newOauthAudience : "";
         String normalizedOauthRequiredScope = newOauthRequiredScope != null ? newOauthRequiredScope : "";
+        String normalizedOauthPublicBaseUrl = newOauthPublicBaseUrl != null ? newOauthPublicBaseUrl : "";
+        boolean normalizedOauthTrustForwardedHeaders = newOauthTrustForwardedHeaders;
         String normalizedOauthCallbackId = newOauthCallbackId != null ? newOauthCallbackId : "";
         if (normalizedAuthMode != authMode || !normalizedAuthUsername.equals(authUsername) ||
             !normalizedAuthPasswordHash.equals(authPasswordHash) || !normalizedOauthIssuer.equals(oauthIssuer) ||
             !normalizedOauthJwksUrl.equals(oauthJwksUrl) || !normalizedOauthAudience.equals(oauthAudience) ||
-            !normalizedOauthRequiredScope.equals(oauthRequiredScope) || !normalizedOauthCallbackId.equals(oauthCallbackId)) {
+            !normalizedOauthRequiredScope.equals(oauthRequiredScope) ||
+            !normalizedOauthPublicBaseUrl.equals(oauthPublicBaseUrl) ||
+            normalizedOauthTrustForwardedHeaders != oauthTrustForwardedHeaders ||
+            !normalizedOauthCallbackId.equals(oauthCallbackId)) {
             authMode = normalizedAuthMode;
             authUsername = normalizedAuthUsername;
             authPasswordHash = normalizedAuthPasswordHash;
@@ -362,6 +370,8 @@ public class GhidrAssistMCPManager {
             oauthJwksUrl = normalizedOauthJwksUrl;
             oauthAudience = normalizedOauthAudience;
             oauthRequiredScope = normalizedOauthRequiredScope;
+            oauthPublicBaseUrl = normalizedOauthPublicBaseUrl;
+            oauthTrustForwardedHeaders = normalizedOauthTrustForwardedHeaders;
             oauthCallbackId = normalizedOauthCallbackId;
             needsRestart = true;
         }
@@ -465,6 +475,9 @@ public class GhidrAssistMCPManager {
         oauthJwksUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_JWKS_URL_SETTING), "");
         oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
         oauthRequiredScope = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_REQUIRED_SCOPE_SETTING), "");
+        oauthPublicBaseUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_PUBLIC_BASE_URL_SETTING), "");
+        oauthTrustForwardedHeaders = Boolean.parseBoolean(
+            Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_TRUST_FORWARDED_HEADERS_SETTING), "false"));
         oauthCallbackId = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_CALLBACK_ID_SETTING), "");
     }
 
@@ -486,7 +499,8 @@ public class GhidrAssistMCPManager {
 
         try {
             server = new GhidrAssistMCPServer(currentHost, currentPort, backend, provider, authMode, authUsername,
-                authPasswordHash, oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope, oauthCallbackId);
+                authPasswordHash, oauthIssuer, oauthJwksUrl, oauthAudience, oauthRequiredScope,
+                oauthPublicBaseUrl, oauthTrustForwardedHeaders, oauthCallbackId);
             server.start();
             if (provider != null) {
                 provider.logSession("Server started on " + currentHost + ":" + currentPort);
