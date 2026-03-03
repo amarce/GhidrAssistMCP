@@ -104,7 +104,12 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
    - **JWKS URL**: signing keys endpoint used to verify token signatures (optional if discoverable from issuer metadata).
    - **Audience**: expected `aud` claim value.
    - **Required Scope** (optional): required scope value in token `scope`/`scp` claim.
-   - These are **not** OAuth client credentials (no client id/client secret exchange is performed by this plugin).
+   - These are **MCP resource-server** settings used to validate bearer tokens on incoming requests.
+
+4. **ChatGPT connector callback/redirect setup is separate from resource-server metadata**:
+   - **Callback ID (optional in the UI)** should match the callback identifier shown in ChatGPT app/connector management (or the redirect URI identifier used there).
+   - Do **not** reuse Auth0 audience/scope values for this callback field.
+   - This plugin keeps callback ID for operator guidance/configuration only and does not publish it as OAuth protected-resource metadata.
 
 ### OpenAI MCP Compatibility Guidance
 
