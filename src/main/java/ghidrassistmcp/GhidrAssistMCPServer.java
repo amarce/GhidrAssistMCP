@@ -59,6 +59,8 @@ public class GhidrAssistMCPServer {
     private static final String AUTH_REALM = "GhidrAssistMCP";
     private static final String BASIC_AUTH_HEADER_PREFIX = "Basic ";
     private static final String BEARER_AUTH_HEADER_PREFIX = "Bearer ";
+    private static final Set<String> OAUTH_PUBLIC_PATHS = Set.of(
+        "/mcp/.well-known/oauth-authorization-server");
     
     private final McpBackend backend;
     private final GhidrAssistMCPProvider provider;
@@ -408,11 +410,25 @@ public class GhidrAssistMCPServer {
             HttpServletRequest httpRequest = (HttpServletRequest) request;
             HttpServletResponse httpResponse = (HttpServletResponse) response;
 
+            if (isPublicRoute(httpRequest)) {
+                chain.doFilter(request, response);
+                return;
+            }
+
             if (!authStrategy.authorize(httpRequest, httpResponse)) {
                 return;
             }
 
             chain.doFilter(request, response);
+        }
+
+        private boolean isPublicRoute(HttpServletRequest request) {
+            String uri = request.getRequestURI();
+            String contextPath = request.getContextPath();
+            String path = (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath))
+                ? uri.substring(contextPath.length())
+                : uri;
+            return OAUTH_PUBLIC_PATHS.contains(path);
         }
     }
 
