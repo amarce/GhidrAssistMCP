@@ -695,30 +695,35 @@ public class GhidrAssistMCPServer {
         public boolean authorize(HttpServletRequest request, HttpServletResponse response) throws java.io.IOException {
             String authorizationHeader = request.getHeader("Authorization");
             if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_AUTH_HEADER_PREFIX)) {
-                sendBearerChallenge(response, "invalid_request", "Missing Bearer token");
+                sendBearerChallenge(request, response, "invalid_request", "Missing Bearer token");
                 return false;
             }
 
             String token = authorizationHeader.substring(BEARER_AUTH_HEADER_PREFIX.length()).trim();
             if (token.isEmpty()) {
-                sendBearerChallenge(response, "invalid_request", "Missing Bearer token");
+                sendBearerChallenge(request, response, "invalid_request", "Missing Bearer token");
                 return false;
             }
 
             if (!tokenValidator.validate(token, request)) {
-                sendBearerChallenge(response, "invalid_token", "Invalid access token");
+                sendBearerChallenge(request, response, "invalid_token", "Invalid access token");
                 return false;
             }
 
             return true;
         }
 
-        private void sendBearerChallenge(HttpServletResponse response, String errorCode, String description)
+        private void sendBearerChallenge(HttpServletRequest request, HttpServletResponse response,
+                String errorCode, String description)
                 throws java.io.IOException {
             StringJoiner challenge = new StringJoiner(", ", "Bearer ", "");
             challenge.add("realm=\"" + AUTH_REALM + "\"");
             challenge.add("error=\"" + errorCode + "\"");
             challenge.add("error_description=\"" + description + "\"");
+            String resourceMetadataUrl = buildResourceMetadataUrl(request);
+            if (!resourceMetadataUrl.isEmpty()) {
+                challenge.add("resource_metadata=\"" + resourceMetadataUrl + "\"");
+            }
             if (!issuer.isEmpty()) {
                 challenge.add("issuer=\"" + issuer + "\"");
             }
@@ -734,6 +739,32 @@ public class GhidrAssistMCPServer {
 
             response.setHeader("WWW-Authenticate", challenge.toString());
             response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized");
+        }
+
+        private String buildResourceMetadataUrl(HttpServletRequest request) {
+            String scheme = extractForwardedOrDefault(request, "X-Forwarded-Proto", request.getScheme());
+            String hostHeader = extractForwardedOrDefault(request, "X-Forwarded-Host", request.getHeader("Host"));
+            if (hostHeader == null || hostHeader.isBlank()) {
+                return "";
+            }
+
+            String normalizedScheme = (scheme == null || scheme.isBlank()) ? "http" : firstHeaderValue(scheme);
+            String normalizedHost = firstHeaderValue(hostHeader);
+            return normalizedScheme + "://" + normalizedHost + "/.well-known/oauth-protected-resource";
+        }
+
+        private String extractForwardedOrDefault(HttpServletRequest request, String headerName, String fallback) {
+            String headerValue = request.getHeader(headerName);
+            if (headerValue == null || headerValue.isBlank()) {
+                return fallback;
+            }
+            return headerValue;
+        }
+
+        private String firstHeaderValue(String value) {
+            int commaIndex = value.indexOf(',');
+            String first = commaIndex >= 0 ? value.substring(0, commaIndex) : value;
+            return first.trim();
         }
     }
 }
