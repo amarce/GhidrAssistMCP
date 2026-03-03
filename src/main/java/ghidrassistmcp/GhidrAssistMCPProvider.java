@@ -70,6 +70,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
     private JTextField oauthJwksUrlField;
     private JTextField oauthAudienceField;
     private JTextField oauthRequiredScopeField;
+    private JTextField oauthCallbackIdField;
     private JTable toolsTable;
     private DefaultTableModel toolsTableModel;
     private JButton saveButton;
@@ -266,14 +267,21 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Audience:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
-        oauthAudienceField = new JTextField("", 20);
-        panel.add(oauthAudienceField, gbc);
+        oauthJwksUrlField = new JTextField("", 20);
+        panel.add(oauthJwksUrlField, gbc);
 
         gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Required Scope (optional):"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
         oauthRequiredScopeField = new JTextField("", 20);
         panel.add(oauthRequiredScopeField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 4; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
+        panel.add(new JLabel("Callback ID (optional):"), gbc);
+        gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        oauthCallbackIdField = new JTextField("", 20);
+        oauthCallbackIdField.setToolTipText("Some clients may require callback_id for OAuth connector setup.");
+        panel.add(oauthCallbackIdField, gbc);
 
         return panel;
     }
@@ -396,6 +404,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         String oauthJwksUrl = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_JWKS_URL_SETTING), "");
         String oauthAudience = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_AUDIENCE_SETTING), "");
         String oauthRequiredScope = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_REQUIRED_SCOPE_SETTING), "");
+        String oauthCallbackId = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.OAUTH_CALLBACK_ID_SETTING), "");
 
         currentBasicAuthPasswordHash = AuthConfig.resolveBasicPasswordHash();
         String legacyBasicPassword = Preferences.getProperty(AuthConfig.getQualifiedKey(AuthConfig.BASIC_PASSWORD_SETTING), "");
@@ -428,6 +437,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         oauthJwksUrlField.setText(oauthJwksUrl);
         oauthAudienceField.setText(oauthAudience);
         oauthRequiredScopeField.setText(oauthRequiredScope);
+        oauthCallbackIdField.setText(oauthCallbackId);
         updateAuthFieldVisibility();
 
         // Load tool enabled states from tool options
@@ -468,7 +478,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
 
         AuthConfig.persistAuthSettings(authMode, authUsernameField.getText(), currentBasicAuthPasswordHash,
             oauthIssuerField.getText(), oauthJwksUrlField.getText(), oauthAudienceField.getText(),
-            oauthRequiredScopeField.getText(), "", "");
+            oauthRequiredScopeField.getText(), oauthCallbackIdField.getText(), "", "");
 
         // Force preferences to be saved to disk
         Preferences.store();
@@ -492,7 +502,7 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
                                 allowDestructiveToolsCheckBox.isSelected(), authMode,
                                 authUsernameField.getText(), enteredPassword,
                                 oauthIssuerField.getText(), oauthJwksUrlField.getText(), oauthAudienceField.getText(),
-                                oauthRequiredScopeField.getText(),
+                                oauthRequiredScopeField.getText(), oauthCallbackIdField.getText(),
                                 toolEnabledStates);
     }
     
