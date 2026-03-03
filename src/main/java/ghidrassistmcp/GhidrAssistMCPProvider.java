@@ -267,8 +267,8 @@ public class GhidrAssistMCPProvider extends ComponentProvider implements McpEven
         gbc.gridx = 0; gbc.gridy = 2; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Audience:"), gbc);
         gbc.gridx = 1; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
-        oauthAudienceField = new JTextField("", 20);
-        panel.add(oauthAudienceField, gbc);
+        oauthJwksUrlField = new JTextField("", 20);
+        panel.add(oauthJwksUrlField, gbc);
 
         gbc.gridx = 0; gbc.gridy = 3; gbc.fill = GridBagConstraints.NONE; gbc.weightx = 0;
         panel.add(new JLabel("Required Scope (optional):"), gbc);
