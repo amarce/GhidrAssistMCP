@@ -216,7 +216,18 @@ public class RunScriptTool implements McpTool {
 
         Object taskMonitor = getDummyTaskMonitor();
         Object ghidraState = createGhidraState(currentProgram, backend);
-        Object scriptResult = invokeViaScriptUtil(scriptFile, ghidraState, taskMonitor, stdoutPw, stderrPw);
+        Object scriptResult;
+        try {
+            scriptResult = invokeViaScriptUtil(scriptFile, ghidraState, taskMonitor, stdoutPw, stderrPw);
+        } catch (IllegalStateException e) {
+            if (e.getMessage() != null && e.getMessage().contains("no supported runScript signatures")) {
+                PrintWriter safeStdout = stdoutPw != null ? stdoutPw : new PrintWriter(new StringWriter(), true);
+                PrintWriter safeStderr = stderrPw != null ? stderrPw : new PrintWriter(new StringWriter(), true);
+                scriptResult = executeScriptDirectly(scriptFile, ghidraState, taskMonitor, safeStdout, safeStderr);
+            } else {
+                throw e;
+            }
+        }
 
         if (captureStdout) {
             stdoutPw.flush();
@@ -453,6 +464,106 @@ public class RunScriptTool implements McpTool {
         } catch (Exception ignored) {
             // best effort
         }
+        return null;
+    }
+
+    /**
+     * Fallback for modern Ghidra versions where GhidraScriptUtil.runScript() doesn't exist.
+     * Finds the provider by extension and executes the script instance directly.
+     */
+    private Object executeScriptDirectly(File scriptFile, Object ghidraState, Object taskMonitor,
+            PrintWriter stdoutPw, PrintWriter stderrPw) throws Exception {
+        Class<?> resourceFileClass = Class.forName("generic.jar.ResourceFile");
+        Object resourceFile = createResourceFile(scriptFile, resourceFileClass);
+        if (resourceFile == null) {
+            throw new IllegalStateException("Failed to create ResourceFile from script file");
+        }
+
+        String extension = scriptFile.getName().toLowerCase(Locale.ROOT).endsWith(".py") ? ".py" : ".java";
+        Object provider = findScriptProviderByExtension(extension);
+        if (provider == null) {
+            throw new IllegalStateException("No script provider found for extension: " + extension);
+        }
+
+        Object script = null;
+        for (Method method : provider.getClass().getMethods()) {
+            if (!method.getName().equals("getScriptInstance")) {
+                continue;
+            }
+
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            if (parameterTypes.length == 2 && parameterTypes[0].isInstance(resourceFile)
+                    && PrintWriter.class.isAssignableFrom(parameterTypes[1])) {
+                script = method.invoke(provider, resourceFile, stdoutPw);
+                break;
+            }
+            if (parameterTypes.length == 1 && parameterTypes[0].isInstance(resourceFile)) {
+                script = method.invoke(provider, resourceFile);
+                break;
+            }
+        }
+        if (script == null) {
+            throw new IllegalStateException("Provider.getScriptInstance() failed for " + extension);
+        }
+
+        for (Method method : script.getClass().getMethods()) {
+            if (!method.getName().equals("set")) {
+                continue;
+            }
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            if (parameterTypes.length == 3 && isGhidraStateType(parameterTypes[0]) && isTaskMonitorType(parameterTypes[1])
+                    && PrintWriter.class.isAssignableFrom(parameterTypes[2])) {
+                method.invoke(script, ghidraState, taskMonitor, stdoutPw);
+                break;
+            }
+        }
+
+        Method executeMethod = null;
+        for (Method method : script.getClass().getMethods()) {
+            if (method.getName().equals("execute") && method.getParameterCount() == 0) {
+                executeMethod = method;
+                break;
+            }
+        }
+        if (executeMethod == null) {
+            throw new IllegalStateException("GhidraScript.execute() method not found");
+        }
+
+        executeMethod.invoke(script);
+        return null;
+    }
+
+    private Object findScriptProviderByExtension(String extension) {
+        try {
+            Class<?> utilClass = Class.forName("ghidra.app.script.GhidraScriptUtil");
+            for (Method method : utilClass.getMethods()) {
+                if (!Modifier.isStatic(method.getModifiers()) || !method.getName().equals("getProviders")
+                        || method.getParameterCount() != 0) {
+                    continue;
+                }
+
+                Object providers = method.invoke(null);
+                if (!(providers instanceof List<?> providerList)) {
+                    return null;
+                }
+
+                for (Object provider : providerList) {
+                    try {
+                        Method getExtension = provider.getClass().getMethod("getExtension");
+                        Object providerExtension = getExtension.invoke(provider);
+                        if (extension.equals(providerExtension)) {
+                            return provider;
+                        }
+                    } catch (Exception ignored) {
+                        // keep searching
+                    }
+                }
+                return null;
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+
         return null;
     }
 
