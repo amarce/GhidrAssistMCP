@@ -7,11 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.File;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.lang.reflect.Method;
 import java.nio.file.Files;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import ghidra.app.script.GhidraState;
+import ghidra.program.model.listing.Program;
 import ghidra.util.task.TaskMonitor;
 
 class RunScriptToolTest {
@@ -94,6 +97,22 @@ class RunScriptToolTest {
         }
 
         throw new AssertionError("Expected IllegalStateException for unsupported signatures");
+    }
+
+    @Test
+    void createGhidraState_fallsBackToNullCtorAndSetsCurrentProgramFieldDirectly() throws Exception {
+        RunScriptTool tool = new RunScriptTool();
+        Program program = Mockito.mock(Program.class);
+
+        Method createStateMethod = RunScriptTool.class
+            .getDeclaredMethod("createGhidraState", Program.class, ghidrassistmcp.GhidrAssistMCPBackend.class);
+        createStateMethod.setAccessible(true);
+
+        Object state = createStateMethod.invoke(tool, program, null);
+
+        assertNotNull(state);
+        assertTrue(state instanceof GhidraState);
+        assertEquals(program, ((GhidraState) state).getCurrentProgram());
     }
 
     public static class PythonRunScriptUtil {
