@@ -54,6 +54,24 @@ class RunScriptToolTest {
         assertEquals("java-file", result);
     }
 
+
+    @Test
+    void invokeViaScriptUtil_supportsRunScriptPrefixedMethodNames() throws Exception {
+        RunScriptTool tool = new RunScriptTool();
+        File script = File.createTempFile("test_script", ".py");
+        Files.writeString(script.toPath(), "print('hello')");
+
+        Object result = tool.invokeViaScriptUtil(
+            script,
+            new GhidraState(),
+            new TaskMonitor(),
+            null,
+            null,
+            PrefixedRunScriptUtil.class);
+
+        assertEquals("prefixed-ok", result);
+    }
+
     @Test
     void invokeViaScriptUtil_reportsDiscoveredSignaturesWhenUnsupported() throws Exception {
         RunScriptTool tool = new RunScriptTool();
@@ -104,6 +122,13 @@ class RunScriptToolTest {
             return path.getName().endsWith(".java") ? "java-file" : "wrong-extension";
         }
     }
+
+    public static class PrefixedRunScriptUtil {
+        public static Object runScriptPreserveState(String path, GhidraState state, TaskMonitor monitor) {
+            return path.endsWith(".py") ? "prefixed-ok" : "wrong-script";
+        }
+    }
+
 
     public static class UnsupportedRunScriptUtil {
         public static Object runScript(String a, String b, String c) {

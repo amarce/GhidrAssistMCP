@@ -273,12 +273,29 @@ public class RunScriptTool implements McpTool {
 
     private List<Method> discoverRunScriptMethods(Class<?> utilClass) {
         List<Method> methods = new ArrayList<>();
-        for (Method method : utilClass.getMethods()) {
-            if (Modifier.isStatic(method.getModifiers()) && method.getName().equals("runScript")) {
-                methods.add(method);
+        collectRunScriptMethods(methods, utilClass.getMethods());
+        collectRunScriptMethods(methods, utilClass.getDeclaredMethods());
+        return methods;
+    }
+
+    private static void collectRunScriptMethods(List<Method> out, Method[] candidates) {
+        for (Method method : candidates) {
+            if (!Modifier.isStatic(method.getModifiers())) {
+                continue;
+            }
+            String name = method.getName();
+            if (!name.equals("runScript") && !name.startsWith("runScript")) {
+                continue;
+            }
+            if (!out.contains(method)) {
+                try {
+                    method.setAccessible(true);
+                } catch (Exception ignored) {
+                    // best effort
+                }
+                out.add(method);
             }
         }
-        return methods;
     }
 
     private List<MethodInvocationPlan> discoverSupportedRunScriptPlans(List<Method> runScriptMethods) {
@@ -307,6 +324,10 @@ public class RunScriptTool implements McpTool {
                 kinds.add(InvocationArgKind.TASK_MONITOR);
             } else if (isGhidraStateType(type)) {
                 kinds.add(InvocationArgKind.GHIDRA_STATE);
+            } else if (isScriptInfoType(type)) {
+                kinds.add(InvocationArgKind.SCRIPT_INFO);
+            } else if (isGhidraScriptType(type)) {
+                kinds.add(InvocationArgKind.GHIDRA_SCRIPT);
             } else if (PrintWriter.class.isAssignableFrom(type)) {
                 if (!stdoutAssigned) {
                     kinds.add(InvocationArgKind.STDOUT);
@@ -322,9 +343,7 @@ public class RunScriptTool implements McpTool {
             }
         }
 
-        if (!kinds.contains(InvocationArgKind.SCRIPT_SOURCE) ||
-                !kinds.contains(InvocationArgKind.GHIDRA_STATE) ||
-                !kinds.contains(InvocationArgKind.TASK_MONITOR)) {
+        if (!kinds.contains(InvocationArgKind.SCRIPT_SOURCE)) {
             return null;
         }
         return new MethodInvocationPlan(method, kinds);
@@ -343,7 +362,13 @@ public class RunScriptTool implements McpTool {
                 case TASK_MONITOR -> taskMonitor;
                 case STDOUT -> stdoutPw;
                 case STDERR -> stderrPw;
+                case SCRIPT_INFO -> createScriptInfo(scriptFile);
+                case GHIDRA_SCRIPT -> createScriptInstance(scriptFile, stdoutPw);
             };
+
+            if (args[i] == null && parameterTypes[i].isPrimitive()) {
+                return null;
+            }
         }
         return args;
     }
@@ -367,6 +392,68 @@ public class RunScriptTool implements McpTool {
 
     private static boolean isGhidraStateType(Class<?> type) {
         return type.getName().equals("ghidra.app.script.GhidraState");
+    }
+
+    private static boolean isScriptInfoType(Class<?> type) {
+        return type.getName().equals("ghidra.app.script.ScriptInfo");
+    }
+
+    private static boolean isGhidraScriptType(Class<?> type) {
+        return type.getName().equals("ghidra.app.script.GhidraScript");
+    }
+
+    private Object createScriptInfo(File scriptFile) {
+        try {
+            Class<?> utilClass = Class.forName("ghidra.app.script.GhidraScriptUtil");
+            Object resourceFile = createResourceFile(scriptFile, Class.forName("generic.jar.ResourceFile"));
+            if (resourceFile == null) {
+                return null;
+            }
+
+            for (Method method : utilClass.getMethods()) {
+                if (!Modifier.isStatic(method.getModifiers()) || !method.getName().equals("getScriptInfo")) {
+                    continue;
+                }
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                if (parameterTypes.length != 1 || !parameterTypes[0].isInstance(resourceFile)) {
+                    continue;
+                }
+                return method.invoke(null, resourceFile);
+            }
+        } catch (Exception ignored) {
+            // best effort
+        }
+        return null;
+    }
+
+    private Object createScriptInstance(File scriptFile, PrintWriter writer) {
+        try {
+            Object scriptInfo = createScriptInfo(scriptFile);
+            if (scriptInfo == null) {
+                return null;
+            }
+            Method getProvider = scriptInfo.getClass().getMethod("getProvider");
+            Object provider = getProvider.invoke(scriptInfo);
+            if (provider == null) {
+                return null;
+            }
+
+            for (Method method : provider.getClass().getMethods()) {
+                if (!method.getName().equals("getScriptInstance")) {
+                    continue;
+                }
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                if (parameterTypes.length == 2 && isScriptInfoType(parameterTypes[0]) && PrintWriter.class.isAssignableFrom(parameterTypes[1])) {
+                    return method.invoke(provider, scriptInfo, writer);
+                }
+                if (parameterTypes.length == 1 && isScriptInfoType(parameterTypes[0])) {
+                    return method.invoke(provider, scriptInfo);
+                }
+            }
+        } catch (Exception ignored) {
+            // best effort
+        }
+        return null;
     }
 
     private static Throwable rootCause(Exception exception) {
@@ -418,7 +505,9 @@ public class RunScriptTool implements McpTool {
         GHIDRA_STATE,
         TASK_MONITOR,
         STDOUT,
-        STDERR
+        STDERR,
+        SCRIPT_INFO,
+        GHIDRA_SCRIPT
     }
 
     private Object createGhidraState(Program currentProgram, GhidrAssistMCPBackend backend) {
