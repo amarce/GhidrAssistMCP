@@ -709,15 +709,56 @@ public class RunScriptTool implements McpTool {
             for (Constructor<?> ctor : stateClass.getConstructors()) {
                 Object[] values = tryBuildStateCtorArgs(ctor.getParameterTypes(), pluginTool, currentProgram);
                 if (values != null) {
-                    return ctor.newInstance(values);
+                    try {
+                        return ctor.newInstance(values);
+                    } catch (Exception ignored) {
+                        // Try the next constructor or fallback path.
+                    }
                 }
             }
 
-            Object state = stateClass.getDeclaredConstructor().newInstance();
-            tryInvokeNoThrow(state, "setCurrentProgram", currentProgram);
-            return state;
+            for (Constructor<?> ctor : stateClass.getConstructors()) {
+                Class<?>[] params = ctor.getParameterTypes();
+                boolean hasPrimitive = false;
+                for (Class<?> param : params) {
+                    if (param.isPrimitive()) {
+                        hasPrimitive = true;
+                        break;
+                    }
+                }
+                if (hasPrimitive) {
+                    continue;
+                }
+
+                try {
+                    Object state = ctor.newInstance(new Object[params.length]);
+                    setFieldInHierarchy(stateClass, state, "currentProgram", currentProgram);
+                    return state;
+                } catch (Exception ignored) {
+                    // Try the next constructor.
+                }
+            }
         } catch (Exception ignored) {
-            return null;
+            // fall through to warning below
+        }
+
+        Msg.warn(RunScriptTool.class,
+            "Failed to create GhidraState for program: " + (currentProgram == null ? "<null>" : currentProgram.getName()));
+        return null;
+    }
+
+    private void setFieldInHierarchy(Class<?> startClass, Object target, String fieldName, Object value)
+            throws IllegalAccessException {
+        Class<?> cls = startClass;
+        while (cls != null) {
+            try {
+                Field field = cls.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                field.set(target, value);
+                return;
+            } catch (NoSuchFieldException ignored) {
+                cls = cls.getSuperclass();
+            }
         }
     }
 
