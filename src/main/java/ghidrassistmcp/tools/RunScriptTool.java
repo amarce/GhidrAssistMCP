@@ -166,8 +166,9 @@ public class RunScriptTool implements McpTool {
         File scriptFile = null;
         try {
             scriptFile = writeTempScript(code, language);
+            final File executableScriptFile = scriptFile;
             ScriptExecutionResult execution = executeWithTimeout(
-                () -> runScriptWithGhidraInfrastructure(scriptFile, currentProgram, backend, captureStdout),
+                () -> runScriptWithGhidraInfrastructure(executableScriptFile, currentProgram, backend, captureStdout),
                 timeoutMs);
 
             response.put("status", execution.status);
