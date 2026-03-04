@@ -15,11 +15,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -27,6 +29,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import ghidra.program.model.listing.Program;
+import ghidra.util.Msg;
 import ghidrassistmcp.GhidrAssistMCPBackend;
 import ghidrassistmcp.GhidrAssistMCPPlugin;
 import ghidrassistmcp.McpTool;
@@ -39,6 +42,13 @@ public class RunScriptTool implements McpTool {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final long DEFAULT_TIMEOUT_MS = 30000L;
+    private static final long MIN_TIMEOUT_MS = 1000L;
+    private static final long MAX_TIMEOUT_MS = 300000L;
+    private static final int MAX_OUTPUT_CHARS = 16000;
+    private static final Set<String> MUTATION_HINTS = Set.of(
+        "starttransaction", "endtransaction", "set", "create", "delete", "remove", "rename",
+        "disassemble", "addfunction", "clearlisting", "write", "save", "commit", "apply"
+    );
 
     @Override
     public String getName() {
@@ -66,6 +76,11 @@ public class RunScriptTool implements McpTool {
     }
 
     @Override
+    public boolean isLongRunning() {
+        return true;
+    }
+
+    @Override
     public McpSchema.JsonSchema getInputSchema() {
         return new McpSchema.JsonSchema("object",
             Map.of(
@@ -82,6 +97,12 @@ public class RunScriptTool implements McpTool {
                 "timeout_ms", Map.of(
                     "type", "integer",
                     "description", "Optional script timeout in milliseconds"
+                ),
+                "mode", Map.of(
+                    "type", "string",
+                    "enum", List.of("read_only", "full"),
+                    "default", "read_only",
+                    "description", "Execution mode. read_only blocks likely mutating scripts; full allows mutating scripts when destructive execution is confirmed."
                 ),
                 "capture_stdout", Map.of(
                     "type", "boolean",
@@ -116,15 +137,31 @@ public class RunScriptTool implements McpTool {
             return errorResult("language must be one of: python, java");
         }
 
-        long timeoutMs = asLong(arguments.get("timeout_ms"), DEFAULT_TIMEOUT_MS);
+        String mode = normalizeMode(asString(arguments.get("mode")));
+        if (!Objects.equals(mode, "read_only") && !Objects.equals(mode, "full")) {
+            return errorResult("mode must be one of: read_only, full");
+        }
+
+        if (!isDestructiveAllowed(arguments, backend)) {
+            return errorResult("run_script requires confirm_destructive=true unless allow_destructive_tools is enabled in plugin configuration");
+        }
+
+        if ("read_only".equals(mode) && appearsMutatingScript(code, language)) {
+            return errorResult("Script appears to use mutating/transaction APIs and is blocked in read_only mode. Use mode=full when mutation is intended.");
+        }
+
+        long timeoutMs = clampTimeout(asLong(arguments.get("timeout_ms"), DEFAULT_TIMEOUT_MS));
         boolean captureStdout = asBoolean(arguments.get("capture_stdout"), true);
+        long startedAt = System.currentTimeMillis();
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("tool", getName());
         response.put("program", currentProgram.getName());
         response.put("language", language);
+        response.put("mode", mode);
         response.put("timeout_ms", timeoutMs);
         response.put("source", "inline_code");
+        response.put("task_cancellable", isTaskManagedExecution(backend));
 
         File scriptFile = null;
         try {
@@ -135,18 +172,31 @@ public class RunScriptTool implements McpTool {
 
             response.put("status", execution.status);
             if (captureStdout) {
-                response.put("stdout", execution.stdout);
-                response.put("stderr", execution.stderr);
+                response.put("stdout", trimOutput(execution.stdout));
+                response.put("stderr", trimOutput(execution.stderr));
             }
-            response.put("result", safeStringify(execution.resultObject));
+            response.put("result", trimOutput(safeStringify(execution.resultObject)));
+            response.put("duration_ms", System.currentTimeMillis() - startedAt);
+            logAudit(currentProgram.getName(), mode, timeoutMs, System.currentTimeMillis() - startedAt, "completed");
             return McpSchema.CallToolResult.builder().addTextContent(toJson(response)).build();
         } catch (TimeoutException e) {
             response.put("status", "timeout");
             response.put("error", "Script execution exceeded timeout");
+            response.put("duration_ms", System.currentTimeMillis() - startedAt);
+            logAudit(currentProgram.getName(), mode, timeoutMs, System.currentTimeMillis() - startedAt, "timeout");
+            return McpSchema.CallToolResult.builder().addTextContent(toJson(response)).build();
+        } catch (InterruptedException | CancellationException e) {
+            Thread.currentThread().interrupt();
+            response.put("status", "cancelled");
+            response.put("error", "Script execution was cancelled");
+            response.put("duration_ms", System.currentTimeMillis() - startedAt);
+            logAudit(currentProgram.getName(), mode, timeoutMs, System.currentTimeMillis() - startedAt, "cancelled");
             return McpSchema.CallToolResult.builder().addTextContent(toJson(response)).build();
         } catch (Exception e) {
             response.put("status", "error");
-            response.put("error", e.getMessage());
+            response.put("error", sanitizeExceptionMessage(e));
+            response.put("duration_ms", System.currentTimeMillis() - startedAt);
+            logAudit(currentProgram.getName(), mode, timeoutMs, System.currentTimeMillis() - startedAt, "error");
             return McpSchema.CallToolResult.builder().addTextContent(toJson(response)).build();
         } finally {
             if (scriptFile != null) {
@@ -312,6 +362,9 @@ public class RunScriptTool implements McpTool {
         try {
             Future<T> future = executor.submit(callable);
             return future.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof Exception ex) {
@@ -385,6 +438,71 @@ public class RunScriptTool implements McpTool {
 
     private static String normalizeLanguage(String language) {
         return (language == null || language.isBlank()) ? "python" : language.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeMode(String mode) {
+        return (mode == null || mode.isBlank()) ? "read_only" : mode.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static long clampTimeout(long timeoutMs) {
+        if (timeoutMs < MIN_TIMEOUT_MS) {
+            return MIN_TIMEOUT_MS;
+        }
+        if (timeoutMs > MAX_TIMEOUT_MS) {
+            return MAX_TIMEOUT_MS;
+        }
+        return timeoutMs;
+    }
+
+    private static String trimOutput(String text) {
+        if (text == null || text.length() <= MAX_OUTPUT_CHARS) {
+            return text;
+        }
+        return text.substring(0, MAX_OUTPUT_CHARS) + "\n...[truncated]";
+    }
+
+    private static String sanitizeExceptionMessage(Exception e) {
+        String message = e.getMessage();
+        if (message == null || message.isBlank()) {
+            return "Script execution failed";
+        }
+        String redacted = message
+            .replaceAll("(?i)(token|password|secret|apikey|api_key)\\s*[=:]\\s*[^\\s,;]+", "$1=<redacted>")
+            .replaceAll("(/[A-Za-z0-9._-]+)+", "<path>");
+        return trimOutput(redacted);
+    }
+
+    private static boolean appearsMutatingScript(String code, String language) {
+        if (code == null) {
+            return false;
+        }
+        String normalized = code.toLowerCase(Locale.ROOT);
+        if ("python".equals(language) || "java".equals(language)) {
+            for (String hint : MUTATION_HINTS) {
+                if (normalized.contains(hint)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isDestructiveAllowed(Map<String, Object> arguments, GhidrAssistMCPBackend backend) {
+        boolean globallyAllowed = backend != null && backend.isAllowDestructiveTools();
+        return globallyAllowed || asBoolean(arguments.get("confirm_destructive"), false);
+    }
+
+    private static boolean isTaskManagedExecution(GhidrAssistMCPBackend backend) {
+        if (backend == null || backend.getTaskManager() == null) {
+            return false;
+        }
+        return Thread.currentThread().getName().startsWith("MCP-Task-");
+    }
+
+    private static void logAudit(String program, String mode, long timeoutMs, long durationMs, String outcome) {
+        Msg.info(RunScriptTool.class,
+            "tool=run_script program=" + program + " mode=" + mode +
+            " duration_ms=" + durationMs + " timeout_ms=" + timeoutMs + " outcome=" + outcome);
     }
 
     private static String safeStringify(Object value) {
