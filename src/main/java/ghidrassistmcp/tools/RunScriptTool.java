@@ -543,18 +543,47 @@ public class RunScriptTool implements McpTool {
             Msg.warn(RunScriptTool.class, "Could not match set() signature. Available: " + setSignatures);
         }
 
-        Method executeMethod = null;
+        boolean executed = false;
         for (Method method : script.getClass().getMethods()) {
-            if (method.getName().equals("execute") && method.getParameterCount() == 0) {
-                executeMethod = method;
+            if (!method.getName().equals("execute")) {
+                continue;
+            }
+
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            if (parameterTypes.length == 3 && isGhidraStateType(parameterTypes[0]) && isTaskMonitorType(parameterTypes[1])
+                    && PrintWriter.class.isAssignableFrom(parameterTypes[2])) {
+                method.invoke(script, ghidraState, taskMonitor, stdoutPw);
+                executed = true;
+                break;
+            }
+
+            if (parameterTypes.length == 0) {
+                method.invoke(script);
+                executed = true;
                 break;
             }
         }
-        if (executeMethod == null) {
-            throw new IllegalStateException("GhidraScript.execute() method not found");
+
+        if (!executed) {
+            for (Method method : script.getClass().getMethods()) {
+                if (method.getName().equals("run") && method.getParameterCount() == 0) {
+                    method.invoke(script);
+                    executed = true;
+                    break;
+                }
+            }
         }
 
-        executeMethod.invoke(script);
+        if (!executed) {
+            List<String> signatures = new ArrayList<>();
+            for (Method method : script.getClass().getMethods()) {
+                if (method.getName().equals("execute") || method.getName().equals("run")) {
+                    signatures.add(formatMethodSignature(method));
+                }
+            }
+            throw new IllegalStateException("No execute/run method matched. Available: " + signatures);
+        }
+
         return null;
     }
 
