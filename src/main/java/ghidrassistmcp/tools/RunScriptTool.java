@@ -469,7 +469,7 @@ public class RunScriptTool implements McpTool {
 
     /**
      * Fallback for modern Ghidra versions where GhidraScriptUtil.runScript() doesn't exist.
-     * Creates a script instance via the provider and calls set() + execute() directly.
+     * Finds the provider by extension and executes the script instance directly.
      */
     private Object executeScriptDirectly(File scriptFile, Object ghidraState, Object taskMonitor,
             PrintWriter stdoutPw, PrintWriter stderrPw) throws Exception {
@@ -479,15 +479,10 @@ public class RunScriptTool implements McpTool {
             throw new IllegalStateException("Failed to create ResourceFile from script file");
         }
 
-        Object scriptInfo = createScriptInfo(scriptFile);
-        if (scriptInfo == null) {
-            throw new IllegalStateException("GhidraScriptUtil.getScriptInfo() not found or returned null");
-        }
-
-        Method getProviderMethod = scriptInfo.getClass().getMethod("getProvider");
-        Object provider = getProviderMethod.invoke(scriptInfo);
+        String extension = scriptFile.getName().toLowerCase(Locale.ROOT).endsWith(".py") ? ".py" : ".java";
+        Object provider = findScriptProviderByExtension(extension);
         if (provider == null) {
-            throw new IllegalStateException("ScriptInfo.getProvider() returned null");
+            throw new IllegalStateException("No script provider found for extension: " + extension);
         }
 
         Object script = null;
@@ -497,18 +492,18 @@ public class RunScriptTool implements McpTool {
             }
 
             Class<?>[] parameterTypes = method.getParameterTypes();
-            if (parameterTypes.length == 2 && parameterTypes[0].isInstance(scriptInfo)
+            if (parameterTypes.length == 2 && parameterTypes[0].isInstance(resourceFile)
                     && PrintWriter.class.isAssignableFrom(parameterTypes[1])) {
-                script = method.invoke(provider, scriptInfo, stdoutPw);
+                script = method.invoke(provider, resourceFile, stdoutPw);
                 break;
             }
-            if (parameterTypes.length == 1 && parameterTypes[0].isInstance(scriptInfo)) {
-                script = method.invoke(provider, scriptInfo);
+            if (parameterTypes.length == 1 && parameterTypes[0].isInstance(resourceFile)) {
+                script = method.invoke(provider, resourceFile);
                 break;
             }
         }
         if (script == null) {
-            throw new IllegalStateException("Failed to create script instance from provider");
+            throw new IllegalStateException("Provider.getScriptInstance() failed for " + extension);
         }
 
         for (Method method : script.getClass().getMethods()) {
@@ -535,6 +530,40 @@ public class RunScriptTool implements McpTool {
         }
 
         executeMethod.invoke(script);
+        return null;
+    }
+
+    private Object findScriptProviderByExtension(String extension) {
+        try {
+            Class<?> utilClass = Class.forName("ghidra.app.script.GhidraScriptUtil");
+            for (Method method : utilClass.getMethods()) {
+                if (!Modifier.isStatic(method.getModifiers()) || !method.getName().equals("getProviders")
+                        || method.getParameterCount() != 0) {
+                    continue;
+                }
+
+                Object providers = method.invoke(null);
+                if (!(providers instanceof List<?> providerList)) {
+                    return null;
+                }
+
+                for (Object provider : providerList) {
+                    try {
+                        Method getExtension = provider.getClass().getMethod("getExtension");
+                        Object providerExtension = getExtension.invoke(provider);
+                        if (extension.equals(providerExtension)) {
+                            return provider;
+                        }
+                    } catch (Exception ignored) {
+                        // keep searching
+                    }
+                }
+                return null;
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+
         return null;
     }
 
