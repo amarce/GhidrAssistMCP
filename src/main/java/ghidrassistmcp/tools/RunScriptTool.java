@@ -507,19 +507,32 @@ public class RunScriptTool implements McpTool {
         }
 
         boolean stateSet = false;
-        for (Method method : script.getClass().getMethods()) {
-            if (!method.getName().equals("set")) {
-                continue;
-            }
-            Class<?>[] parameterTypes = method.getParameterTypes();
-            if (parameterTypes.length == 3 && isGhidraStateType(parameterTypes[0]) && isTaskMonitorType(parameterTypes[1])
-                    && PrintWriter.class.isAssignableFrom(parameterTypes[2])) {
-                method.invoke(script, ghidraState, taskMonitor, stdoutPw);
-                stateSet = true;
-                break;
+        if (ghidraState != null) {
+            for (Method method : script.getClass().getMethods()) {
+                if (!method.getName().equals("set")) {
+                    continue;
+                }
+                Class<?>[] parameterTypes = method.getParameterTypes();
+                if (parameterTypes.length == 3 && isGhidraStateType(parameterTypes[0]) && isTaskMonitorType(parameterTypes[1])
+                        && PrintWriter.class.isAssignableFrom(parameterTypes[2])) {
+                    method.invoke(script, ghidraState, taskMonitor, stdoutPw);
+                    stateSet = true;
+                    break;
+                }
             }
         }
         if (!stateSet) {
+            Msg.warn(RunScriptTool.class,
+                "set() not matched, setting script fields directly. ghidraState=" + ghidraState);
+            setFieldByReflection(script, "state", ghidraState, currentProgram);
+            setFieldByReflection(script, "currentProgram", currentProgram);
+            if (taskMonitor != null) {
+                setFieldByReflection(script, "monitor", taskMonitor);
+            }
+            if (stdoutPw != null) {
+                setFieldByReflection(script, "writer", stdoutPw);
+            }
+
             tryInvokeNoThrow(script, "setCurrentProgram", currentProgram);
             List<String> setSignatures = new ArrayList<>();
             for (Method method : script.getClass().getMethods()) {
@@ -543,6 +556,28 @@ public class RunScriptTool implements McpTool {
 
         executeMethod.invoke(script);
         return null;
+    }
+
+    private static void setFieldByReflection(Object target, String fieldName, Object... candidates) {
+        Class<?> cls = target.getClass();
+        while (cls != null) {
+            try {
+                Field field = cls.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                for (Object candidate : candidates) {
+                    if (candidate != null && field.getType().isInstance(candidate)) {
+                        field.set(target, candidate);
+                        return;
+                    }
+                }
+            } catch (NoSuchFieldException ignored) {
+                // keep walking up the class hierarchy
+            } catch (Exception exception) {
+                Msg.warn(RunScriptTool.class,
+                    "Failed to set field " + fieldName + ": " + exception.getMessage());
+            }
+            cls = cls.getSuperclass();
+        }
     }
 
     private Object findScriptProviderByExtension(String extension) {
