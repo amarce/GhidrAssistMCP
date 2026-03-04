@@ -730,7 +730,25 @@ public class RunScriptTool implements McpTool {
             } else if (Program.class.isAssignableFrom(type)) {
                 args[i] = currentProgram;
             } else if (type.isPrimitive()) {
-                return null;
+                if (type == boolean.class) {
+                    args[i] = false;
+                } else if (type == int.class) {
+                    args[i] = 0;
+                } else if (type == long.class) {
+                    args[i] = 0L;
+                } else if (type == float.class) {
+                    args[i] = 0.0f;
+                } else if (type == double.class) {
+                    args[i] = 0.0;
+                } else if (type == byte.class) {
+                    args[i] = (byte) 0;
+                } else if (type == short.class) {
+                    args[i] = (short) 0;
+                } else if (type == char.class) {
+                    args[i] = '\0';
+                } else {
+                    return null;
+                }
             } else {
                 args[i] = null;
             }
