@@ -37,6 +37,8 @@ import ghidrassistmcp.tools.CancelTaskTool;
 import ghidrassistmcp.tools.ClassTool;
 import ghidrassistmcp.tools.ClearCodeTool;
 import ghidrassistmcp.tools.CreateFunctionAtTool;
+import ghidrassistmcp.tools.DisassembleRangeTool;
+import ghidrassistmcp.tools.EvaluateExpressionTool;
 import ghidrassistmcp.tools.DeleteDataTypeTool;
 import ghidrassistmcp.tools.AssembleAtTool;
 import ghidrassistmcp.tools.FunctionLifecycleTool;
@@ -138,6 +140,8 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new CreateFunctionAtTool());
         registerTool(new ReanalyzeRangeTool());
         registerTool(new GetBytesTool());
+        registerTool(new DisassembleRangeTool());
+        registerTool(new EvaluateExpressionTool());
 
         // Register async task management tools
         registerTool(new GetTaskStatusTool());
