@@ -273,12 +273,29 @@ public class RunScriptTool implements McpTool {
 
     private List<Method> discoverRunScriptMethods(Class<?> utilClass) {
         List<Method> methods = new ArrayList<>();
-        for (Method method : utilClass.getMethods()) {
-            if (Modifier.isStatic(method.getModifiers()) && method.getName().equals("runScript")) {
-                methods.add(method);
+        collectRunScriptMethods(methods, utilClass.getMethods());
+        collectRunScriptMethods(methods, utilClass.getDeclaredMethods());
+        return methods;
+    }
+
+    private static void collectRunScriptMethods(List<Method> out, Method[] candidates) {
+        for (Method method : candidates) {
+            if (!Modifier.isStatic(method.getModifiers())) {
+                continue;
+            }
+            String name = method.getName();
+            if (!name.equals("runScript") && !name.startsWith("runScript")) {
+                continue;
+            }
+            if (!out.contains(method)) {
+                try {
+                    method.setAccessible(true);
+                } catch (Exception ignored) {
+                    // best effort
+                }
+                out.add(method);
             }
         }
-        return methods;
     }
 
     private List<MethodInvocationPlan> discoverSupportedRunScriptPlans(List<Method> runScriptMethods) {
