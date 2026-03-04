@@ -722,9 +722,69 @@ public class RunScriptTool implements McpTool {
 
     private static File writeTempScript(String code, String language) throws Exception {
         String extension = "python".equals(language) ? ".py" : ".java";
-        File file = File.createTempFile("ghidrassist_inline_", extension);
+        File file;
+        if ("java".equals(language)) {
+            File scriptDir = getGhidraScriptDirectory();
+            if (scriptDir != null) {
+                String className = extractClassName(code);
+                if (className == null || className.isBlank()) {
+                    className = "GhidrAssistInlineScript";
+                }
+                file = new File(scriptDir, className + extension);
+            }
+            else {
+                file = File.createTempFile("ghidrassist_inline_", extension);
+            }
+        }
+        else {
+            file = File.createTempFile("ghidrassist_inline_", extension);
+        }
+
         Files.writeString(file.toPath(), code, StandardCharsets.UTF_8);
         return file;
+    }
+
+    private static File getGhidraScriptDirectory() {
+        try {
+            File userHomeScriptDir = new File(System.getProperty("user.home"), "ghidra_scripts");
+            if (userHomeScriptDir.isDirectory()) {
+                return userHomeScriptDir;
+            }
+
+            Class<?> utilClass = Class.forName("ghidra.app.script.GhidraScriptUtil");
+            for (Method method : utilClass.getMethods()) {
+                if (!Modifier.isStatic(method.getModifiers()) || method.getParameterCount() != 0) {
+                    continue;
+                }
+                if (!method.getName().contains("ScriptDir")) {
+                    continue;
+                }
+
+                Object result = method.invoke(null);
+                if (result instanceof List<?> dirs && !dirs.isEmpty()) {
+                    Object first = dirs.get(0);
+                    try {
+                        Method getFileMethod = first.getClass().getMethod("getFile", boolean.class);
+                        Object fileResult = getFileMethod.invoke(first, false);
+                        if (fileResult instanceof File file && file.isDirectory()) {
+                            return file;
+                        }
+                    } catch (Exception ignored) {
+                        if (first instanceof File file && file.isDirectory()) {
+                            return file;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // best effort only
+        }
+        return null;
+    }
+
+    private static String extractClassName(String code) {
+        var matcher = java.util.regex.Pattern.compile("public\\s+class\\s+(\\w+)").matcher(code);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private static boolean isResourceFileType(Class<?> type) {
@@ -823,6 +883,12 @@ public class RunScriptTool implements McpTool {
         String redacted = message
             .replaceAll("(?i)(token|password|secret|apikey|api_key)\\s*[=:]\\s*[^\\s,;]+", "$1=<redacted>")
             .replaceAll("(/[A-Za-z0-9._-]+)+", "<path>");
+
+        if (redacted.contains("Ghidra was not started with PyGhidra")) {
+            redacted = redacted + " | Start Ghidra with PyGhidra enabled (e.g. ghidraRun --pyghidra / --pyhidra), " +
+                "set PYGHIDRA=true in support/launch.properties, or install the PyGhidra extension.";
+        }
+
         return className + ": " + trimOutput(redacted);
     }
 
