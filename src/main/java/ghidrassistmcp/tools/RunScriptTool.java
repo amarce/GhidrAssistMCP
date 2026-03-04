@@ -57,7 +57,7 @@ public class RunScriptTool implements McpTool {
 
     @Override
     public String getDescription() {
-        return "Execute inline Python/Java Ghidra scripts with current program context";
+        return "⚠️ HIGH RISK: Executes inline Python/Java Ghidra scripts against the current program context";
     }
 
     @Override
