@@ -216,7 +216,18 @@ public class RunScriptTool implements McpTool {
 
         Object taskMonitor = getDummyTaskMonitor();
         Object ghidraState = createGhidraState(currentProgram, backend);
-        Object scriptResult = invokeViaScriptUtil(scriptFile, ghidraState, taskMonitor, stdoutPw, stderrPw);
+        Object scriptResult;
+        try {
+            scriptResult = invokeViaScriptUtil(scriptFile, ghidraState, taskMonitor, stdoutPw, stderrPw);
+        } catch (IllegalStateException e) {
+            if (e.getMessage() != null && e.getMessage().contains("no supported runScript signatures")) {
+                PrintWriter safeStdout = stdoutPw != null ? stdoutPw : new PrintWriter(new StringWriter(), true);
+                PrintWriter safeStderr = stderrPw != null ? stderrPw : new PrintWriter(new StringWriter(), true);
+                scriptResult = executeScriptDirectly(scriptFile, ghidraState, taskMonitor, safeStdout, safeStderr);
+            } else {
+                throw e;
+            }
+        }
 
         if (captureStdout) {
             stdoutPw.flush();
@@ -453,6 +464,77 @@ public class RunScriptTool implements McpTool {
         } catch (Exception ignored) {
             // best effort
         }
+        return null;
+    }
+
+    /**
+     * Fallback for modern Ghidra versions where GhidraScriptUtil.runScript() doesn't exist.
+     * Creates a script instance via the provider and calls set() + execute() directly.
+     */
+    private Object executeScriptDirectly(File scriptFile, Object ghidraState, Object taskMonitor,
+            PrintWriter stdoutPw, PrintWriter stderrPw) throws Exception {
+        Class<?> resourceFileClass = Class.forName("generic.jar.ResourceFile");
+        Object resourceFile = createResourceFile(scriptFile, resourceFileClass);
+        if (resourceFile == null) {
+            throw new IllegalStateException("Failed to create ResourceFile from script file");
+        }
+
+        Object scriptInfo = createScriptInfo(scriptFile);
+        if (scriptInfo == null) {
+            throw new IllegalStateException("GhidraScriptUtil.getScriptInfo() not found or returned null");
+        }
+
+        Method getProviderMethod = scriptInfo.getClass().getMethod("getProvider");
+        Object provider = getProviderMethod.invoke(scriptInfo);
+        if (provider == null) {
+            throw new IllegalStateException("ScriptInfo.getProvider() returned null");
+        }
+
+        Object script = null;
+        for (Method method : provider.getClass().getMethods()) {
+            if (!method.getName().equals("getScriptInstance")) {
+                continue;
+            }
+
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            if (parameterTypes.length == 2 && parameterTypes[0].isInstance(scriptInfo)
+                    && PrintWriter.class.isAssignableFrom(parameterTypes[1])) {
+                script = method.invoke(provider, scriptInfo, stdoutPw);
+                break;
+            }
+            if (parameterTypes.length == 1 && parameterTypes[0].isInstance(scriptInfo)) {
+                script = method.invoke(provider, scriptInfo);
+                break;
+            }
+        }
+        if (script == null) {
+            throw new IllegalStateException("Failed to create script instance from provider");
+        }
+
+        for (Method method : script.getClass().getMethods()) {
+            if (!method.getName().equals("set")) {
+                continue;
+            }
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            if (parameterTypes.length == 3 && isGhidraStateType(parameterTypes[0]) && isTaskMonitorType(parameterTypes[1])
+                    && PrintWriter.class.isAssignableFrom(parameterTypes[2])) {
+                method.invoke(script, ghidraState, taskMonitor, stdoutPw);
+                break;
+            }
+        }
+
+        Method executeMethod = null;
+        for (Method method : script.getClass().getMethods()) {
+            if (method.getName().equals("execute") && method.getParameterCount() == 0) {
+                executeMethod = method;
+                break;
+            }
+        }
+        if (executeMethod == null) {
+            throw new IllegalStateException("GhidraScript.execute() method not found");
+        }
+
+        executeMethod.invoke(script);
         return null;
     }
 
