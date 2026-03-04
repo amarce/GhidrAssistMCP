@@ -10,7 +10,7 @@ GhidrAssistMCP bridges the gap between AI-powered analysis tools and Ghidra's co
 
 - **MCP Server Integration**: Full Model Context Protocol server implementation using official SDK
 - **Dual HTTP Transports**: Supports SSE and Streamable HTTP transports for maximum client compatibility
-- **37 Built-in Tools**: Comprehensive set of analysis tools with action-based consolidation for cleaner APIs
+- **39 Built-in Tools**: Comprehensive set of analysis tools with action-based consolidation for cleaner APIs
 - **5 MCP Resources**: Static data resources for program info, functions, strings, imports, and exports
 - **5 MCP Prompts**: Pre-built analysis prompts for common reverse engineering tasks
 - **Result Caching**: Intelligent caching system to improve performance for repeated queries
@@ -141,14 +141,14 @@ Typical reverse proxy behavior should include forwarding:
 
 The Configuration tab allows you to:
 
-- **View all available tools** (34 total)
+- **View all available tools** (39 total)
 - **Enable/disable individual tools** using checkboxes
 - **Save configuration** to persist across sessions
 - **Monitor tool status** in real-time
 
 ## Available Tools
 
-GhidrAssistMCP provides 34 tools organized into categories. Several tools use an action-based API pattern where a single tool provides multiple related operations.
+GhidrAssistMCP provides 39 tools organized into categories. Several tools use an action-based API pattern where a single tool provides multiple related operations.
 
 ### Program & Data Listing
 
@@ -174,6 +174,8 @@ GhidrAssistMCP provides 34 tools organized into categories. Several tools use an
 | `get_current_function` | Get function at current cursor position |
 | `get_current_address` | Get current cursor address |
 | `get_hexdump` | Get hexdump of memory at specific address |
+| `disassemble_range` | Disassemble raw instruction ranges even outside defined functions |
+| `evaluate_expression` | Evaluate register/expression values at an address using lightweight constant propagation |
 | `get_call_graph` | Get call graph for a function (callers and callees) |
 | `get_basic_blocks` | Get basic block information for a function |
 
@@ -546,7 +548,7 @@ GhidrAssistMCP/
 │   ├── DocumentFunctionPrompt.java
 │   ├── TraceDataFlowPrompt.java
 │   └── TraceNetworkDataPrompt.java
-└── tools/                    # MCP Tools (34 total)
+└── tools/                    # MCP Tools (39 total)
     ├── Consolidated action-based tools
     ├── Analysis tools
     ├── Modification tools
