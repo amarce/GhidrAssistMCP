@@ -10,7 +10,7 @@ GhidrAssistMCP bridges the gap between AI-powered analysis tools and Ghidra's co
 
 - **MCP Server Integration**: Full Model Context Protocol server implementation using official SDK
 - **Dual HTTP Transports**: Supports SSE and Streamable HTTP transports for maximum client compatibility
-- **39 Built-in Tools**: Comprehensive set of analysis tools with action-based consolidation for cleaner APIs
+- **40 Built-in Tools**: Comprehensive set of analysis tools with action-based consolidation for cleaner APIs
 - **5 MCP Resources**: Static data resources for program info, functions, strings, imports, and exports
 - **5 MCP Prompts**: Pre-built analysis prompts for common reverse engineering tasks
 - **Result Caching**: Intelligent caching system to improve performance for repeated queries
@@ -141,14 +141,14 @@ Typical reverse proxy behavior should include forwarding:
 
 The Configuration tab allows you to:
 
-- **View all available tools** (39 total)
+- **View all available tools** (40 total)
 - **Enable/disable individual tools** using checkboxes
 - **Save configuration** to persist across sessions
 - **Monitor tool status** in real-time
 
 ## Available Tools
 
-GhidrAssistMCP provides 39 tools organized into categories. Several tools use an action-based API pattern where a single tool provides multiple related operations.
+GhidrAssistMCP provides 40 tools organized into categories. Several tools use an action-based API pattern where a single tool provides multiple related operations.
 
 ### Program & Data Listing
 
@@ -266,6 +266,12 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | `function_lifecycle` | Create, delete, or redefine functions by address/body range |
 | `patch_bytes` | Patch bytes in writable memory with optional dry-run and byte verification |
 
+### Scripting Tools
+
+| Tool | Description |
+| ----- | ----------- |
+| `run_script` | ⚠️ **HIGH RISK** Executes inline Python/Java Ghidra scripts against the current program. Prefer `mode: "read_only"`; only use `mode: "full"` for intentional mutations. |
+
 ### Search Tools
 
 | Tool | Description |
@@ -274,7 +280,9 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 
 ### Async Task Management
 
-Long-running operations (decompilation, structure analysis, field xrefs, and analysis_tasks/patching workflows) execute asynchronously:
+Long-running operations (decompilation, structure analysis, field xrefs, script execution, and analysis_tasks/patching workflows) execute asynchronously:
+
+> Recommended usage: keep `run_script` in `mode: "read_only"` by default for safe analysis workflows. Use async (`"async": true`) when scripts or analysis jobs may exceed normal request latency (e.g., larger instruction walks, decompilation-heavy logic, or broad scans).
 
 | Tool | Description |
 | ---- | ----------- |
@@ -408,6 +416,40 @@ Pre-built prompts for common analysis tasks:
       "action": "field_xrefs",
       "structure_name": "Host",
       "field_name": "port"
+    }
+  }
+}
+```
+
+### Scripted Constant Propagation Probe (`run_script`, read-only)
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "run_script",
+    "arguments": {
+      "mode": "read_only",
+      "language": "python",
+      "code": "from ghidra.program.util import SymbolicPropogator\nfrom ghidra.util.task import ConsoleTaskMonitor\nfunc = getFunctionContaining(currentAddress)\nprop = SymbolicPropogator(currentProgram)\nprop.setParamRefCheck(True)\nprop.setReturnRefCheck(True)\nmonitor = ConsoleTaskMonitor()\nif func:\n    flow = prop.flowConstants(func.getEntryPoint(), func.getBody(), monitor)\n    print('entry=', func.getEntryPoint(), 'flows=', flow)\nelse:\n    print('no function at currentAddress')"
+    }
+  }
+}
+```
+
+### Async Instruction Iteration Sweep (`run_script`)
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "run_script",
+    "arguments": {
+      "mode": "read_only",
+      "language": "python",
+      "async": true,
+      "timeout_ms": 120000,
+      "code": "listing = currentProgram.getListing()\nfunc = getFunctionContaining(currentAddress)\ncount = 0\nif func:\n    it = listing.getInstructions(func.getBody(), True)\n    while it.hasNext() and count < 5000:\n        ins = it.next()\n        count += 1\n        if count <= 25:\n            print('%s: %s' % (ins.getAddress(), ins))\nprint('instruction_count=', count)"
     }
   }
 }
@@ -548,7 +590,7 @@ GhidrAssistMCP/
 │   ├── DocumentFunctionPrompt.java
 │   ├── TraceDataFlowPrompt.java
 │   └── TraceNetworkDataPrompt.java
-└── tools/                    # MCP Tools (39 total)
+└── tools/                    # MCP Tools (40 total)
     ├── Consolidated action-based tools
     ├── Analysis tools
     ├── Modification tools
