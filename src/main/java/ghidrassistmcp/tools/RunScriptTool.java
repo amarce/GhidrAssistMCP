@@ -223,7 +223,7 @@ public class RunScriptTool implements McpTool {
             if (e.getMessage() != null && e.getMessage().contains("no supported runScript signatures")) {
                 PrintWriter safeStdout = stdoutPw != null ? stdoutPw : new PrintWriter(new StringWriter(), true);
                 PrintWriter safeStderr = stderrPw != null ? stderrPw : new PrintWriter(new StringWriter(), true);
-                scriptResult = executeScriptDirectly(scriptFile, ghidraState, taskMonitor, safeStdout, safeStderr);
+                scriptResult = executeScriptDirectly(scriptFile, ghidraState, currentProgram, taskMonitor, safeStdout, safeStderr);
             } else {
                 throw e;
             }
@@ -471,7 +471,7 @@ public class RunScriptTool implements McpTool {
      * Fallback for modern Ghidra versions where GhidraScriptUtil.runScript() doesn't exist.
      * Finds the provider by extension and executes the script instance directly.
      */
-    private Object executeScriptDirectly(File scriptFile, Object ghidraState, Object taskMonitor,
+    private Object executeScriptDirectly(File scriptFile, Object ghidraState, Program currentProgram, Object taskMonitor,
             PrintWriter stdoutPw, PrintWriter stderrPw) throws Exception {
         Class<?> resourceFileClass = Class.forName("generic.jar.ResourceFile");
         Object resourceFile = createResourceFile(scriptFile, resourceFileClass);
@@ -506,6 +506,7 @@ public class RunScriptTool implements McpTool {
             throw new IllegalStateException("Provider.getScriptInstance() failed for " + extension);
         }
 
+        boolean stateSet = false;
         for (Method method : script.getClass().getMethods()) {
             if (!method.getName().equals("set")) {
                 continue;
@@ -514,8 +515,19 @@ public class RunScriptTool implements McpTool {
             if (parameterTypes.length == 3 && isGhidraStateType(parameterTypes[0]) && isTaskMonitorType(parameterTypes[1])
                     && PrintWriter.class.isAssignableFrom(parameterTypes[2])) {
                 method.invoke(script, ghidraState, taskMonitor, stdoutPw);
+                stateSet = true;
                 break;
             }
+        }
+        if (!stateSet) {
+            tryInvokeNoThrow(script, "setCurrentProgram", currentProgram);
+            List<String> setSignatures = new ArrayList<>();
+            for (Method method : script.getClass().getMethods()) {
+                if (method.getName().equals("set")) {
+                    setSignatures.add(formatMethodSignature(method));
+                }
+            }
+            Msg.warn(RunScriptTool.class, "Could not match set() signature. Available: " + setSignatures);
         }
 
         Method executeMethod = null;
@@ -794,14 +806,24 @@ public class RunScriptTool implements McpTool {
     }
 
     private static String sanitizeExceptionMessage(Exception e) {
-        String message = e.getMessage();
+        Throwable root = e;
+        if (e instanceof InvocationTargetException ite && ite.getCause() != null) {
+            root = ite.getCause();
+        }
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String message = root.getMessage();
+        String className = root.getClass().getSimpleName();
         if (message == null || message.isBlank()) {
-            return "Script execution failed";
+            StackTraceElement[] stack = root.getStackTrace();
+            String location = stack.length > 0 ? " at " + stack[0] : "";
+            return "Script execution failed: " + className + location;
         }
         String redacted = message
             .replaceAll("(?i)(token|password|secret|apikey|api_key)\\s*[=:]\\s*[^\\s,;]+", "$1=<redacted>")
             .replaceAll("(/[A-Za-z0-9._-]+)+", "<path>");
-        return trimOutput(redacted);
+        return className + ": " + trimOutput(redacted);
     }
 
     private static boolean appearsMutatingScript(String code, String language) {
