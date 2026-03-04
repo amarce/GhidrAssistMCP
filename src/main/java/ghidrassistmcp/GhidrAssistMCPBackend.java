@@ -68,6 +68,7 @@ import ghidrassistmcp.tools.ProgramInfoTool;
 import ghidrassistmcp.tools.RenameSymbolBatchTool;
 import ghidrassistmcp.tools.RenameSymbolTool;
 import ghidrassistmcp.tools.ReanalyzeRangeTool;
+import ghidrassistmcp.tools.RunScriptTool;
 import ghidrassistmcp.tools.SearchBytesTool;
 import ghidrassistmcp.tools.SetCommentTool;
 import ghidrassistmcp.tools.SetDataTypeTool;
@@ -160,6 +161,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new BookmarksTool());
         registerTool(new GetBasicBlocksTool());
         registerTool(new ListRelocationsTool());
+        registerTool(new RunScriptTool());
 
         Msg.info(this, "GhidrAssistMCP Backend initialized with " + tools.size() + " tools");
     }
