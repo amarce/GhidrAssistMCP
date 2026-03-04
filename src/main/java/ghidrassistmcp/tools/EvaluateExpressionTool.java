@@ -105,11 +105,18 @@ public class EvaluateExpressionTool implements McpTool {
             return McpSchema.CallToolResult.builder().addTextContent(out.toString()).build();
         }
 
-        String key = normalizeRegisterKey(expression);
+        String key = resolveRegisterExpressionKey(currentProgram, expression);
+        if (key == null) {
+            out.append("Value: unknown\nResolved: no\n");
+            out.append("Note: register not recognized for this language profile.");
+            return McpSchema.CallToolResult.builder().addTextContent(out.toString()).build();
+        }
+
         Long value = values.get(key);
         if (value == null) {
             out.append("Value: unknown\nResolved: no\n");
-            out.append("Note: evaluator currently handles linear constant propagation and may miss CFG-sensitive values.");
+            out.append("Note: register recognized, but value was not propagated to this location. ")
+               .append("Evaluator currently handles linear constant propagation and may miss CFG-sensitive values.");
         } else {
             out.append("Value: 0x").append(Long.toUnsignedString(value, 16))
                .append(" (decimal ").append(Long.toUnsignedString(value)).append(")\nResolved: yes");
@@ -167,15 +174,44 @@ public class EvaluateExpressionTool implements McpTool {
         return key == null ? null : values.get(key);
     }
 
-    private String getRegisterKey(Program program, Varnode node) {
+    String getRegisterKey(Program program, Varnode node) {
         if (node == null || !node.isRegister()) {
             return null;
         }
         Register register = program.getRegister(node.getAddress(), node.getSize());
         if (register != null) {
-            return normalizeRegisterKey(register.getName());
+            return canonicalRegisterKey(register, node.getSize());
         }
-        return normalizeRegisterKey(node.toString());
+        return null;
+    }
+
+    String resolveRegisterExpressionKey(Program program, String expression) {
+        if (program == null || expression == null || expression.isBlank()) {
+            return null;
+        }
+
+        String trimmed = expression.trim();
+        Register register = program.getLanguage().getRegister(trimmed);
+        if (register == null) {
+            register = program.getRegister(trimmed);
+        }
+        if (register == null) {
+            return null;
+        }
+
+        return canonicalRegisterKey(register, register.getNumBytes());
+    }
+
+    static String canonicalRegisterKey(Register register, int size) {
+        if (register == null) {
+            return null;
+        }
+        Register baseRegister = register.getBaseRegister();
+        Register canonicalBase = baseRegister == null ? register : baseRegister;
+        int baseOffset = canonicalBase.getOffset();
+        int offset = Math.max(0, register.getOffset() - baseOffset);
+        int normalizedSize = size > 0 ? size : register.getNumBytes();
+        return normalizeRegisterKey(canonicalBase.getName()) + ":" + offset + ":" + normalizedSize;
     }
 
     private static String normalizeRegisterKey(String value) {
