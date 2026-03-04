@@ -5,6 +5,7 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
@@ -232,62 +233,192 @@ public class RunScriptTool implements McpTool {
     private Object invokeViaScriptUtil(File scriptFile, Object ghidraState, Object taskMonitor,
             PrintWriter stdoutPw, PrintWriter stderrPw) throws Exception {
         Class<?> utilClass = Class.forName("ghidra.app.script.GhidraScriptUtil");
-        List<Throwable> failures = new ArrayList<>();
+        return invokeViaScriptUtil(scriptFile, ghidraState, taskMonitor, stdoutPw, stderrPw, utilClass);
+    }
 
-        for (Method method : utilClass.getMethods()) {
-            if (!Modifier.isStatic(method.getModifiers())) {
-                continue;
-            }
-            if (!method.getName().toLowerCase(Locale.ROOT).contains("runscript")) {
-                continue;
-            }
+    Object invokeViaScriptUtil(File scriptFile, Object ghidraState, Object taskMonitor,
+            PrintWriter stdoutPw, PrintWriter stderrPw, Class<?> utilClass) throws Exception {
+        List<Method> discoveredRunScriptMethods = discoverRunScriptMethods(utilClass);
+        List<MethodInvocationPlan> supportedPlans = discoverSupportedRunScriptPlans(discoveredRunScriptMethods);
+        if (supportedPlans.isEmpty()) {
+            throw new IllegalStateException("Unable to execute script with GhidraScriptUtil: no supported runScript signatures were found. " +
+                "Discovered runScript signatures: " + formatMethodSignatures(discoveredRunScriptMethods));
+        }
+
+        List<String> failures = new ArrayList<>();
+        Throwable lastFailure = null;
+        for (MethodInvocationPlan plan : supportedPlans) {
             try {
-                Object[] args = buildInvocationArgs(method.getParameterTypes(), scriptFile, ghidraState, taskMonitor,
-                    stdoutPw, stderrPw);
-                if (args == null) {
-                    continue;
-                }
-                return method.invoke(null, args);
+                Object[] args = buildInvocationArgs(plan, scriptFile, ghidraState, taskMonitor, stdoutPw, stderrPw);
+                return plan.method.invoke(null, args);
             } catch (Exception e) {
-                failures.add(e);
+                Throwable rootCause = rootCause(e);
+                String signature = formatMethodSignature(plan.method);
+                Msg.warn(RunScriptTool.class,
+                    "run_script invocation failed for signature " + signature + ": " + rootCause.getClass().getName() +
+                        ": " + (rootCause.getMessage() == null ? "<no-message>" : rootCause.getMessage()));
+                failures.add(signature + " -> " + rootCause.getClass().getSimpleName() +
+                    (rootCause.getMessage() == null ? "" : (": " + rootCause.getMessage())));
+                lastFailure = rootCause;
             }
         }
 
-        throw new IllegalStateException("Unable to execute script with GhidraScriptUtil runScript overloads. " +
-            "Attempted overload failures: " + failures.size());
+        String message = "Unable to execute script with supported GhidraScriptUtil.runScript signatures. " +
+            "Attempted signatures: " + failures;
+        if (lastFailure instanceof Exception ex) {
+            throw new IllegalStateException(message, ex);
+        }
+        throw new IllegalStateException(message);
     }
 
-    private Object[] buildInvocationArgs(Class<?>[] parameterTypes, File scriptFile, Object ghidraState,
-            Object taskMonitor, PrintWriter stdoutPw, PrintWriter stderrPw) {
-        Object[] args = new Object[parameterTypes.length];
+    private List<Method> discoverRunScriptMethods(Class<?> utilClass) {
+        List<Method> methods = new ArrayList<>();
+        for (Method method : utilClass.getMethods()) {
+            if (Modifier.isStatic(method.getModifiers()) && method.getName().equals("runScript")) {
+                methods.add(method);
+            }
+        }
+        return methods;
+    }
+
+    private List<MethodInvocationPlan> discoverSupportedRunScriptPlans(List<Method> runScriptMethods) {
+        List<MethodInvocationPlan> plans = new ArrayList<>();
+        for (Method method : runScriptMethods) {
+            MethodInvocationPlan plan = createInvocationPlan(method);
+            if (plan != null) {
+                plans.add(plan);
+            }
+        }
+        plans.sort((a, b) -> Integer.compare(b.parameterKinds.size(), a.parameterKinds.size()));
+        return plans;
+    }
+
+    private MethodInvocationPlan createInvocationPlan(Method method) {
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        List<InvocationArgKind> kinds = new ArrayList<>();
+        boolean stdoutAssigned = false;
+        boolean stderrAssigned = false;
+
         for (int i = 0; i < parameterTypes.length; i++) {
             Class<?> type = parameterTypes[i];
-            Object value;
-
-            if (type == String.class) {
-                value = scriptFile.getAbsolutePath();
-            } else if (File.class.isAssignableFrom(type)) {
-                value = scriptFile;
+            if (i == 0 && (type == String.class || File.class.isAssignableFrom(type) || isResourceFileType(type))) {
+                kinds.add(InvocationArgKind.SCRIPT_SOURCE);
+            } else if (isTaskMonitorType(type)) {
+                kinds.add(InvocationArgKind.TASK_MONITOR);
+            } else if (isGhidraStateType(type)) {
+                kinds.add(InvocationArgKind.GHIDRA_STATE);
             } else if (PrintWriter.class.isAssignableFrom(type)) {
-                value = (i == 0 || stdoutPw == null) ? stdoutPw : stderrPw;
-            } else if (taskMonitor != null && type.isInstance(taskMonitor)) {
-                value = taskMonitor;
-            } else if (ghidraState != null && type.isInstance(ghidraState)) {
-                value = ghidraState;
-            } else if (isResourceFileType(type)) {
-                value = createResourceFile(scriptFile, type);
-            } else if (type == boolean.class || type == Boolean.class) {
-                value = Boolean.FALSE;
-            } else if (type == int.class || type == Integer.class) {
-                value = Integer.valueOf(0);
-            } else if (!type.isPrimitive()) {
-                value = null;
+                if (!stdoutAssigned) {
+                    kinds.add(InvocationArgKind.STDOUT);
+                    stdoutAssigned = true;
+                } else if (!stderrAssigned) {
+                    kinds.add(InvocationArgKind.STDERR);
+                    stderrAssigned = true;
+                } else {
+                    return null;
+                }
             } else {
                 return null;
             }
-            args[i] = value;
+        }
+
+        if (!kinds.contains(InvocationArgKind.SCRIPT_SOURCE) ||
+                !kinds.contains(InvocationArgKind.GHIDRA_STATE) ||
+                !kinds.contains(InvocationArgKind.TASK_MONITOR)) {
+            return null;
+        }
+        return new MethodInvocationPlan(method, kinds);
+    }
+
+    private Object[] buildInvocationArgs(MethodInvocationPlan plan, File scriptFile, Object ghidraState,
+            Object taskMonitor, PrintWriter stdoutPw, PrintWriter stderrPw) {
+        Class<?>[] parameterTypes = plan.method.getParameterTypes();
+        Object[] args = new Object[parameterTypes.length];
+        for (int i = 0; i < parameterTypes.length; i++) {
+            Class<?> type = parameterTypes[i];
+            InvocationArgKind kind = plan.parameterKinds.get(i);
+            args[i] = switch (kind) {
+                case SCRIPT_SOURCE -> mapScriptSource(type, scriptFile);
+                case GHIDRA_STATE -> ghidraState;
+                case TASK_MONITOR -> taskMonitor;
+                case STDOUT -> stdoutPw;
+                case STDERR -> stderrPw;
+            };
         }
         return args;
+    }
+
+    private static Object mapScriptSource(Class<?> type, File scriptFile) {
+        if (type == String.class) {
+            return scriptFile.getAbsolutePath();
+        }
+        if (File.class.isAssignableFrom(type)) {
+            return scriptFile;
+        }
+        if (isResourceFileType(type)) {
+            return createResourceFile(scriptFile, type);
+        }
+        return null;
+    }
+
+    private static boolean isTaskMonitorType(Class<?> type) {
+        return type.getName().equals("ghidra.util.task.TaskMonitor");
+    }
+
+    private static boolean isGhidraStateType(Class<?> type) {
+        return type.getName().equals("ghidra.app.script.GhidraState");
+    }
+
+    private static Throwable rootCause(Exception exception) {
+        Throwable current = exception;
+        if (current instanceof InvocationTargetException ite && ite.getCause() != null) {
+            current = ite.getCause();
+        }
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private static String formatMethodSignatures(List<Method> methods) {
+        if (methods.isEmpty()) {
+            return "<none>";
+        }
+        List<String> signatures = new ArrayList<>();
+        for (Method method : methods) {
+            signatures.add(formatMethodSignature(method));
+        }
+        return signatures.toString();
+    }
+
+    private static String formatMethodSignature(Method method) {
+        StringBuilder sb = new StringBuilder(method.getName()).append('(');
+        Class<?>[] parameterTypes = method.getParameterTypes();
+        for (int i = 0; i < parameterTypes.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(parameterTypes[i].getTypeName());
+        }
+        return sb.append(')').toString();
+    }
+
+    private static class MethodInvocationPlan {
+        private final Method method;
+        private final List<InvocationArgKind> parameterKinds;
+
+        MethodInvocationPlan(Method method, List<InvocationArgKind> parameterKinds) {
+            this.method = method;
+            this.parameterKinds = parameterKinds;
+        }
+    }
+
+    private enum InvocationArgKind {
+        SCRIPT_SOURCE,
+        GHIDRA_STATE,
+        TASK_MONITOR,
+        STDOUT,
+        STDERR
     }
 
     private Object createGhidraState(Program currentProgram, GhidrAssistMCPBackend backend) {
