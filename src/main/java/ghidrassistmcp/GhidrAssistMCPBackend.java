@@ -76,6 +76,12 @@ import ghidrassistmcp.tools.SetFunctionPrototypeTool;
 import ghidrassistmcp.tools.SetLocalVariableTypeTool;
 import ghidrassistmcp.tools.StructTool;
 import ghidrassistmcp.tools.XrefsTool;
+import ghidrassistmcp.tools.ListProjectFilesTool;
+import ghidrassistmcp.tools.CreateProjectFolderTool;
+import ghidrassistmcp.tools.ImportFileTool;
+import ghidrassistmcp.tools.DeleteProjectFileTool;
+import ghidrassistmcp.tools.OpenProgramTool;
+import ghidrassistmcp.tools.CloseProgramTool;
 import io.modelcontextprotocol.spec.McpSchema;
 
 /**
@@ -162,6 +168,14 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new GetBasicBlocksTool());
         registerTool(new ListRelocationsTool());
         registerTool(new RunScriptTool());
+
+        // Register project management tools
+        registerTool(new ListProjectFilesTool());
+        registerTool(new CreateProjectFolderTool());
+        registerTool(new ImportFileTool());
+        registerTool(new DeleteProjectFileTool());
+        registerTool(new OpenProgramTool());
+        registerTool(new CloseProgramTool());
 
         Msg.info(this, "GhidrAssistMCP Backend initialized with " + tools.size() + " tools");
     }
@@ -721,6 +735,19 @@ public class GhidrAssistMCPBackend implements McpBackend {
     public GhidrAssistMCPPlugin getActivePlugin() {
         if (manager != null) {
             return manager.getActivePlugin();
+        }
+        return null;
+    }
+
+    /**
+     * Get the currently active PluginTool for project and service access.
+     * This allows tools to access the Ghidra Project, ProgramManager, and other services.
+     *
+     * @return The active PluginTool, or null if none is active
+     */
+    public ghidra.framework.plugintool.PluginTool getPluginTool() {
+        if (manager != null) {
+            return manager.getActiveTool();
         }
         return null;
     }
