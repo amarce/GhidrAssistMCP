@@ -36,7 +36,10 @@ public class ImportFileTool implements McpTool {
     public String getDescription() {
         return "Import a binary file from disk into the current Ghidra project. " +
                "Specify 'file_path' (absolute path on disk) and optionally 'folder_path' " +
-               "(project folder to import into, default: '/').";
+               "(project folder to import into, default: '/'). " +
+               "For raw binary files (firmware dumps, .bin), you MUST specify 'language_id' " +
+               "(e.g., 'tricore:LE:32:default' for Bosch MED17 ECUs). " +
+               "Use 'list_languages' to see all available language IDs.";
     }
 
     @Override
@@ -46,7 +49,13 @@ public class ImportFileTool implements McpTool {
                 "file_path", Map.of("type", "string",
                     "description", "Absolute path to the file on disk to import"),
                 "folder_path", Map.of("type", "string",
-                    "description", "Project folder to import into (default: '/')")
+                    "description", "Project folder to import into (default: '/')"),
+                "language_id", Map.of("type", "string",
+                    "description", "Language/CPU ID for raw binary imports (e.g., 'tricore:LE:32:default', 'ARM:LE:32:v8'). Use list_languages to discover available IDs."),
+                "compiler_id", Map.of("type", "string",
+                    "description", "Compiler spec ID (default: 'default'). Only needed with language_id."),
+                "name", Map.of("type", "string",
+                    "description", "Override the imported program name (default: filename)")
             ),
             List.of("file_path"), null, null, null);
     }
@@ -112,16 +121,34 @@ public class ImportFileTool implements McpTool {
                 .build();
         }
 
+        String languageId = arguments.containsKey("language_id")
+            ? (String) arguments.get("language_id") : null;
+        String compilerId = arguments.containsKey("compiler_id")
+            ? (String) arguments.get("compiler_id") : null;
+        String nameOverride = arguments.containsKey("name")
+            ? (String) arguments.get("name") : null;
+
         try {
             MessageLog messageLog = new MessageLog();
 
-            LoadResults<Program> results = ProgramLoader.builder()
+            var builder = ProgramLoader.builder()
                 .source(file)
                 .project(project)
                 .projectFolderPath(folderPath)
                 .log(messageLog)
-                .monitor(TaskMonitor.DUMMY)
-                .load();
+                .monitor(TaskMonitor.DUMMY);
+
+            if (languageId != null && !languageId.trim().isEmpty()) {
+                builder.language(languageId.trim());
+            }
+            if (compilerId != null && !compilerId.trim().isEmpty()) {
+                builder.compiler(compilerId.trim());
+            }
+            if (nameOverride != null && !nameOverride.trim().isEmpty()) {
+                builder.name(nameOverride.trim());
+            }
+
+            LoadResults<Program> results = builder.load();
 
             if (results == null) {
                 String logMsg = messageLog.toString();

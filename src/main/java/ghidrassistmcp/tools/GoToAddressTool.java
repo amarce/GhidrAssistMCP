@@ -63,24 +63,10 @@ public class GoToAddressTool implements McpTool {
                 .build();
         }
 
-        PluginTool pluginTool = backend.getPluginTool();
-        if (pluginTool == null) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: No active Ghidra tool available")
-                .build();
-        }
-
         String addressStr = (String) arguments.get("address");
         if (addressStr == null || addressStr.trim().isEmpty()) {
             return McpSchema.CallToolResult.builder()
                 .addTextContent("Error: 'address' is required")
-                .build();
-        }
-
-        GoToService goToService = pluginTool.getService(GoToService.class);
-        if (goToService == null) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: GoToService not available")
                 .build();
         }
 
@@ -97,12 +83,28 @@ public class GoToAddressTool implements McpTool {
             // Not a valid hex address, try as symbol
         }
 
+        // Try GoToService if GUI is available
+        PluginTool pluginTool = backend.getPluginTool();
+        GoToService goToService = null;
+        if (pluginTool != null) {
+            goToService = pluginTool.getService(GoToService.class);
+        }
+
         if (addr != null) {
-            boolean success = goToService.goTo(addr);
-            if (success) {
-                return McpSchema.CallToolResult.builder()
-                    .addTextContent("Navigated to address: " + addr)
-                    .build();
+            if (goToService != null) {
+                boolean success = goToService.goTo(addr);
+                if (success) {
+                    return McpSchema.CallToolResult.builder()
+                        .addTextContent("Navigated to address: " + addr)
+                        .build();
+                }
+            } else {
+                // Headless mode: validate address exists in program memory
+                if (currentProgram.getMemory().contains(addr)) {
+                    return McpSchema.CallToolResult.builder()
+                        .addTextContent("Address resolved: " + addr + " (in " + currentProgram.getName() + ")")
+                        .build();
+                }
             }
         }
 
@@ -111,10 +113,17 @@ public class GoToAddressTool implements McpTool {
         SymbolIterator symbols = symbolTable.getSymbols(addressStr);
         if (symbols.hasNext()) {
             Symbol sym = symbols.next();
-            boolean success = goToService.goTo(sym.getAddress());
-            if (success) {
+            if (goToService != null) {
+                boolean success = goToService.goTo(sym.getAddress());
+                if (success) {
+                    return McpSchema.CallToolResult.builder()
+                        .addTextContent("Navigated to symbol '" + sym.getName() + "' at " + sym.getAddress())
+                        .build();
+                }
+            } else {
                 return McpSchema.CallToolResult.builder()
-                    .addTextContent("Navigated to symbol '" + sym.getName() + "' at " + sym.getAddress())
+                    .addTextContent("Symbol resolved: '" + sym.getName() + "' at " + sym.getAddress() +
+                        " (in " + currentProgram.getName() + ")")
                     .build();
             }
         }

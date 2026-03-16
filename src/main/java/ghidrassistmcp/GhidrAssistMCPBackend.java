@@ -76,6 +76,7 @@ import ghidrassistmcp.tools.SetFunctionPrototypeTool;
 import ghidrassistmcp.tools.SetLocalVariableTypeTool;
 import ghidrassistmcp.tools.StructTool;
 import ghidrassistmcp.tools.XrefsTool;
+import ghidrassistmcp.tools.ListLanguagesTool;
 import ghidrassistmcp.tools.ListProjectFilesTool;
 import ghidrassistmcp.tools.CreateProjectFolderTool;
 import ghidrassistmcp.tools.ImportFileTool;
@@ -180,6 +181,7 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new RunScriptTool());
 
         // Register project management tools
+        registerTool(new ListLanguagesTool());
         registerTool(new ListProjectFilesTool());
         registerTool(new CreateProjectFolderTool());
         registerTool(new ImportFileTool());
