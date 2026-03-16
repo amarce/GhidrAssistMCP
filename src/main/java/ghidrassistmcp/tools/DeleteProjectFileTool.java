@@ -30,7 +30,9 @@ public class DeleteProjectFileTool implements McpTool {
     public String getDescription() {
         return "Delete a file from the current Ghidra project. " +
                "Specify 'file_path' as the full project path (e.g., '/folder/binary.exe'). " +
-               "WARNING: This permanently removes the file from the project.";
+               "WARNING: This permanently removes the file from the project. " +
+               "Cannot delete the last remaining file — at least one must exist for the " +
+               "headless MCP server to auto-start with a program context.";
     }
 
     @Override
@@ -111,6 +113,16 @@ public class DeleteProjectFileTool implements McpTool {
                 .build();
         }
 
+        // Safety: refuse to delete the last file in the project
+        int totalFiles = countFiles(projectData.getRootFolder());
+        if (totalFiles <= 1) {
+            return McpSchema.CallToolResult.builder()
+                .addTextContent("Error: Cannot delete the last file in the project.\n" +
+                    "At least one file must remain so the headless MCP server can auto-start " +
+                    "with a program context. Import another file first before deleting this one.")
+                .build();
+        }
+
         if (domainFile.isReadOnly()) {
             return McpSchema.CallToolResult.builder()
                 .addTextContent("Error: File is read-only: " + filePath)
@@ -128,5 +140,13 @@ public class DeleteProjectFileTool implements McpTool {
                 .addTextContent("Error deleting file: " + e.getMessage())
                 .build();
         }
+    }
+
+    private int countFiles(DomainFolder folder) {
+        int count = folder.getFiles().length;
+        for (DomainFolder sub : folder.getFolders()) {
+            count += countFiles(sub);
+        }
+        return count;
     }
 }
