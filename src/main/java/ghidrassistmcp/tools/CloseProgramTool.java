@@ -28,7 +28,7 @@ public class CloseProgramTool implements McpTool {
     public String getDescription() {
         return "Close an open program in Ghidra. " +
                "Specify 'program_name' to identify which program to close. " +
-               "IMPORTANT: Cannot close the last remaining open program, as that would disable the MCP server.";
+               "All programs can be closed — the MCP server stays active regardless.";
     }
 
     @Override
@@ -70,15 +70,6 @@ public class CloseProgramTool implements McpTool {
         }
 
         List<Program> openPrograms = backend.getAllOpenPrograms();
-
-        // Safety check: don't close the last open program
-        if (openPrograms.size() <= 1) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: Cannot close the last open program. " +
-                    "At least one program must remain open for the MCP server to stay active. " +
-                    "Open another program first before closing this one.")
-                .build();
-        }
 
         // Find the program to close
         Program toClose = null;

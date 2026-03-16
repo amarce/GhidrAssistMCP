@@ -82,6 +82,14 @@ import ghidrassistmcp.tools.ImportFileTool;
 import ghidrassistmcp.tools.DeleteProjectFileTool;
 import ghidrassistmcp.tools.OpenProgramTool;
 import ghidrassistmcp.tools.CloseProgramTool;
+import ghidrassistmcp.tools.GetProjectInfoTool;
+import ghidrassistmcp.tools.SaveProjectTool;
+import ghidrassistmcp.tools.ExportProgramTool;
+import ghidrassistmcp.tools.AnalyzeProgramTool;
+import ghidrassistmcp.tools.UndoRedoTool;
+import ghidrassistmcp.tools.GoToAddressTool;
+import ghidrassistmcp.tools.RenameProjectFileTool;
+import ghidrassistmcp.tools.MoveProjectFileTool;
 import io.modelcontextprotocol.spec.McpSchema;
 
 /**
@@ -176,6 +184,16 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new DeleteProjectFileTool());
         registerTool(new OpenProgramTool());
         registerTool(new CloseProgramTool());
+        registerTool(new GetProjectInfoTool());
+        registerTool(new SaveProjectTool());
+        registerTool(new RenameProjectFileTool());
+        registerTool(new MoveProjectFileTool());
+
+        // Register autopilot tools
+        registerTool(new ExportProgramTool());
+        registerTool(new AnalyzeProgramTool());
+        registerTool(new UndoRedoTool());
+        registerTool(new GoToAddressTool());
 
         Msg.info(this, "GhidrAssistMCP Backend initialized with " + tools.size() + " tools");
     }
