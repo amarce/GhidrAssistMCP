@@ -4,6 +4,8 @@
 package ghidrassistmcp;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.HashMap;
@@ -45,10 +47,12 @@ import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportPro
 import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 
+import ghidra.framework.Application;
 import ghidra.program.model.listing.Program;
 import ghidra.util.Msg;
 import ghidrassistmcp.prompts.McpPrompt;
 import ghidrassistmcp.resources.McpResource;
+import ghidrassistmcp.session.McpSessionPersistence;
 
 /**
  * Refactored MCP Server implementation that uses the backend architecture.
@@ -63,6 +67,7 @@ public class GhidrAssistMCPServer {
     private final McpBackend backend;
     private final GhidrAssistMCPProvider provider;
     private Server jettyServer;
+    private McpSessionPersistence sessionPersistence;
     private final String host;
     private final int port;
     private final AuthConfig.AuthMode authMode;
@@ -202,6 +207,19 @@ public class GhidrAssistMCPServer {
 
             sseServerBuilder.build();
             streamableServerBuilder.build();
+
+            // Initialize session persistence for the Streamable HTTP transport.
+            // This restores persisted sessions so clients can reconnect without
+            // re-initializing after a server restart.
+            try {
+                Path sessionDir = resolveSessionStorageDir();
+                sessionPersistence = new McpSessionPersistence(sessionDir);
+                sessionPersistence.initialize(streamableTransportProvider);
+                Msg.info(this, "Session persistence enabled, storage: " + sessionDir);
+            } catch (Exception e) {
+                Msg.warn(this, "Failed to initialize session persistence (non-fatal): " + e.getMessage());
+                sessionPersistence = null;
+            }
             
             // Register MCP servlet - use root path since transport provider handles routing internally
             Msg.info(this, "Registering MCP servlet");
@@ -282,9 +300,31 @@ public class GhidrAssistMCPServer {
     }
     
     public void stop() throws Exception {
+        if (sessionPersistence != null) {
+            try {
+                sessionPersistence.shutdown();
+            } catch (Exception e) {
+                Msg.warn(this, "Error shutting down session persistence: " + e.getMessage());
+            }
+            sessionPersistence = null;
+        }
         if (jettyServer != null) {
             jettyServer.stop();
             Msg.info(this, "GhidrAssistMCP Server stopped");
+        }
+    }
+
+    /**
+     * Resolve the directory for storing persisted MCP sessions.
+     * Uses Ghidra's user settings directory when available, falling back to
+     * a directory under the user's home.
+     */
+    private static Path resolveSessionStorageDir() {
+        try {
+            return Application.getUserSettingsDirectory().toPath().resolve("mcp-sessions");
+        } catch (Exception e) {
+            // Fall back if Ghidra Application is not initialized (e.g., in tests)
+            return Paths.get(System.getProperty("user.home"), ".ghidrassistmcp", "sessions");
         }
     }
     
