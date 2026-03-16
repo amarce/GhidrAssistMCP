@@ -7,11 +7,11 @@ import java.io.File;
 import java.util.List;
 import java.util.Map;
 
-import ghidra.app.util.importer.AutoImporter;
 import ghidra.app.util.importer.MessageLog;
+import ghidra.app.util.importer.ProgramLoader;
 import ghidra.app.util.opinion.LoadResults;
+import ghidra.app.util.opinion.Loaded;
 import ghidra.framework.model.DomainFolder;
-import ghidra.framework.model.DomainObject;
 import ghidra.framework.model.Project;
 import ghidra.framework.model.ProjectData;
 import ghidra.framework.plugintool.PluginTool;
@@ -23,6 +23,7 @@ import io.modelcontextprotocol.spec.McpSchema;
 
 /**
  * MCP tool that imports a binary file from disk into the Ghidra project.
+ * Uses the ProgramLoader builder API (Ghidra 12+).
  */
 public class ImportFileTool implements McpTool {
 
@@ -120,8 +121,14 @@ public class ImportFileTool implements McpTool {
 
         try {
             MessageLog messageLog = new MessageLog();
-            LoadResults<? extends DomainObject> results = AutoImporter.importByUsingBestGuess(
-                file, project, folderPath, this, messageLog, TaskMonitor.DUMMY);
+
+            LoadResults<Program> results = ProgramLoader.builder()
+                .source(file)
+                .project(project)
+                .projectFolderPath(folderPath)
+                .log(messageLog)
+                .monitor(TaskMonitor.DUMMY)
+                .load();
 
             if (results == null) {
                 String logMsg = messageLog.toString();
@@ -135,22 +142,23 @@ public class ImportFileTool implements McpTool {
             result.append("Successfully imported: ").append(file.getName()).append("\n");
             result.append("Into project folder: ").append(folderPath).append("\n");
 
-            DomainObject primary = results.getPrimaryDomainObject();
-            if (primary != null) {
-                result.append("Program name: ").append(primary.getName()).append("\n");
-                if (primary instanceof Program) {
-                    Program prog = (Program) primary;
+            try {
+                Loaded<Program> primary = results.getPrimary();
+                if (primary != null) {
+                    Program prog = primary.getDomainObject(this);
+                    result.append("Program name: ").append(prog.getName()).append("\n");
                     result.append("Language: ").append(prog.getLanguageID()).append("\n");
                     result.append("Format: ").append(prog.getExecutableFormat()).append("\n");
+                    primary.save(TaskMonitor.DUMMY);
                 }
+            } finally {
+                results.close();
             }
 
             String logMsg = messageLog.toString();
             if (!logMsg.isEmpty()) {
                 result.append("\nImport log:\n").append(logMsg);
             }
-
-            results.release(this);
 
             return McpSchema.CallToolResult.builder()
                 .addTextContent(result.toString())
