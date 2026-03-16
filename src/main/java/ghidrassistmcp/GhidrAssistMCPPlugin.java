@@ -1,5 +1,5 @@
-/* 
- * 
+/*
+ *
  */
 package ghidrassistmcp;
 
@@ -8,8 +8,11 @@ import java.util.List;
 import java.util.Map;
 
 import ghidra.MiscellaneousPluginPackage;
+import ghidra.app.events.ProgramActivatedPluginEvent;
+import ghidra.app.events.ProgramClosedPluginEvent;
+import ghidra.app.events.ProgramLocationPluginEvent;
+import ghidra.app.events.ProgramOpenedPluginEvent;
 import ghidra.app.plugin.PluginCategoryNames;
-import ghidra.app.plugin.ProgramPlugin;
 import ghidra.app.services.ProgramManager;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
@@ -22,32 +25,41 @@ import ghidra.util.Msg;
 
 /**
  * GhidrAssistMCP Plugin - Provides an MCP (Model Context Protocol) server for Ghidra analysis capabilities.
- * Features a configurable UI with tool management and request logging.
+ *
+ * Extends Plugin (not ProgramPlugin) so the MCP server starts as soon as the tool opens,
+ * before any program/file is loaded. Program events are tracked manually via processEvent().
  */
 @PluginInfo(
 	status = PluginStatus.STABLE,
 	packageName = MiscellaneousPluginPackage.NAME,
 	category = PluginCategoryNames.COMMON,
 	shortDescription = "MCP Server for Ghidra",
-	description = "Provides a configurable MCP (Model Context Protocol) server for Ghidra analysis capabilities with tool management and logging."
+	description = "Provides a configurable MCP (Model Context Protocol) server for Ghidra analysis capabilities with tool management and logging.",
+	eventsConsumed = {
+		ProgramActivatedPluginEvent.class,
+		ProgramOpenedPluginEvent.class,
+		ProgramClosedPluginEvent.class,
+		ProgramLocationPluginEvent.class
+	}
 )
-public class GhidrAssistMCPPlugin extends ProgramPlugin {
+public class GhidrAssistMCPPlugin extends Plugin {
 
 	private GhidrAssistMCPProvider provider;
 	private GhidrAssistMCPManager manager;
 	private boolean isServerOwner = false;
 
-	// Current UI location tracking
+	// Manual program tracking (replaces ProgramPlugin's built-in tracking)
+	private volatile Program currentProgram;
 	private volatile ProgramLocation currentLocation1;
 
 	/**
 	 * Plugin constructor.
-	 * 
+	 *
 	 * @param tool The plugin tool that this plugin is added to.
 	 */
 	public GhidrAssistMCPPlugin(PluginTool tool) {
 		super(tool);
-		
+
 		// Create the UI provider but don't register it yet
 		provider = new GhidrAssistMCPProvider(tool, this);
 	}
@@ -77,6 +89,7 @@ public class GhidrAssistMCPPlugin extends ProgramPlugin {
 
 		// Register this tool with the singleton manager
 		// The first tool to register becomes the server owner and gets its provider used
+		// Server starts HERE - immediately when the tool opens, before any program is loaded
 		isServerOwner = manager.registerTool(tool, provider);
 
 		if (isServerOwner) {
@@ -89,7 +102,74 @@ public class GhidrAssistMCPPlugin extends ProgramPlugin {
 			provider.logSession("Plugin initialized" + (isServerOwner ? " (server owner)" : ""));
 		}
 	}
-	
+
+	/**
+	 * Process plugin events for program lifecycle and location tracking.
+	 * This replaces ProgramPlugin's automatic event handling.
+	 */
+	@Override
+	public void processEvent(PluginEvent event) {
+		if (event instanceof ProgramActivatedPluginEvent) {
+			Program program = ((ProgramActivatedPluginEvent) event).getActiveProgram();
+			programActivated(program);
+		} else if (event instanceof ProgramOpenedPluginEvent) {
+			Program program = ((ProgramOpenedPluginEvent) event).getProgram();
+			if (provider != null && program != null) {
+				provider.logSession("Program opened: " + program.getName());
+			}
+		} else if (event instanceof ProgramClosedPluginEvent) {
+			Program program = ((ProgramClosedPluginEvent) event).getProgram();
+			programDeactivated(program);
+		} else if (event instanceof ProgramLocationPluginEvent) {
+			ProgramLocation loc = ((ProgramLocationPluginEvent) event).getLocation();
+			locationChanged(loc);
+		}
+	}
+
+	private void programActivated(Program program) {
+		this.currentProgram = program;
+
+		// Notify manager that this tool is now active (focus tracking)
+		if (manager != null) {
+			manager.setActiveTool(tool);
+			manager.setActivePlugin(this);
+		}
+
+		GhidrAssistMCPBackend backend = getBackend();
+		if (backend != null) {
+			backend.onProgramActivated(program);
+		}
+		if (provider != null && program != null) {
+			provider.logSession("Program activated: " + program.getName());
+		}
+	}
+
+	private void locationChanged(ProgramLocation loc) {
+		this.currentLocation1 = loc;
+
+		// Set this as the active plugin for UI context access
+		if (manager != null) {
+			manager.setActivePlugin(this);
+		}
+
+		if (provider != null && loc != null) {
+			provider.logMessage("Location changed to: " + loc.getAddress());
+		}
+	}
+
+	private void programDeactivated(Program program) {
+		if (program != null && program.equals(this.currentProgram)) {
+			this.currentProgram = null;
+		}
+		GhidrAssistMCPBackend backend = getBackend();
+		if (backend != null) {
+			backend.onProgramDeactivated(program);
+		}
+		if (provider != null) {
+			provider.logSession("Program closed: " + (program != null ? program.getName() : "null"));
+		}
+	}
+
 	/**
 	 * Apply new configuration from the UI.
 	 * Delegates to the singleton manager which handles server restart if needed.
@@ -106,52 +186,7 @@ public class GhidrAssistMCPPlugin extends ProgramPlugin {
 				toolStates);
 		}
 	}
-	
-	@Override
-	protected void programActivated(Program program) {
-		super.programActivated(program);
 
-		// Notify manager that this tool is now active (focus tracking)
-		if (manager != null) {
-			manager.setActiveTool(tool);
-		}
-
-		GhidrAssistMCPBackend backend = getBackend();
-		if (backend != null) {
-			backend.onProgramActivated(program);
-		}
-		if (provider != null && program != null) {
-			provider.logSession("Program activated: " + program.getName());
-		}
-	}
-	
-	@Override
-	protected void locationChanged(ProgramLocation loc) {
-		super.locationChanged(loc);
-		this.currentLocation1 = loc;
-
-		// Set this as the active plugin for UI context access
-		if (manager != null) {
-			manager.setActivePlugin(this);
-		}
-
-		if (provider != null && loc != null) {
-			provider.logMessage("Location changed to: " + loc.getAddress());
-		}
-	}
-	
-	@Override
-	protected void programDeactivated(Program program) {
-		super.programDeactivated(program);
-		GhidrAssistMCPBackend backend = getBackend();
-		if (backend != null) {
-			backend.onProgramDeactivated(program);
-		}
-		if (provider != null) {
-			provider.logSession("Program deactivated: " + (program != null ? program.getName() : "null"));
-		}
-	}
-	
 	@Override
 	protected void dispose() {
 		if (provider != null) {
@@ -173,7 +208,7 @@ public class GhidrAssistMCPPlugin extends ProgramPlugin {
 
 		super.dispose();
 	}
-	
+
 	/**
 	 * Get the MCP backend for tool management.
 	 * Returns the shared backend from the singleton manager.
@@ -204,12 +239,11 @@ public class GhidrAssistMCPPlugin extends ProgramPlugin {
 	public boolean isServerEnabled() {
 		return manager != null ? manager.isServerEnabled() : false;
 	}
-	
+
 	/**
 	 * Get the current program using ProgramManager service for accurate tracking.
 	 * This method properly handles multi-program scenarios.
 	 */
-	@Override
 	public Program getCurrentProgram() {
 		ProgramManager pm = tool.getService(ProgramManager.class);
 		if (pm != null) {
@@ -218,8 +252,8 @@ public class GhidrAssistMCPPlugin extends ProgramPlugin {
 				return current;
 			}
 		}
-		// Fall back to parent implementation
-		return super.getCurrentProgram();
+		// Fall back to tracked program
+		return currentProgram;
 	}
 
 	/**
