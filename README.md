@@ -1,5 +1,7 @@
 # GhidrAssistMCP
 
+> **Fork Notice**: This is a fork of [symgraph/GhidrAssistMCP](https://github.com/symgraph/GhidrAssistMCP) (originally by [jtang613](https://github.com/jtang613/GhidrAssistMCP)) with additional features including Ghidra 12.0.4 support, project management CRUD, full autopilot tools, and early MCP server startup.
+
 A powerful Ghidra extension that provides an MCP (Model Context Protocol) server, enabling AI assistants and other tools to interact with Ghidra's reverse engineering capabilities through a standardized API.
 
 ## Overview
@@ -9,8 +11,11 @@ GhidrAssistMCP bridges the gap between AI-powered analysis tools and Ghidra's co
 ### Key Features
 
 - **MCP Server Integration**: Full Model Context Protocol server implementation using official SDK
+- **Early Server Start**: MCP server starts as soon as the tool opens, before any program/file is loaded
 - **Dual HTTP Transports**: Supports SSE and Streamable HTTP transports for maximum client compatibility
-- **40 Built-in Tools**: Comprehensive set of analysis tools with action-based consolidation for cleaner APIs
+- **59 Built-in Tools**: Comprehensive set of analysis, project management, and autopilot tools
+- **Full Project CRUD**: Create folders, import/export/delete/rename/move files, save projects
+- **Autopilot Support**: Auto-analysis, undo/redo, navigation, export — everything needed for AI-driven reverse engineering
 - **5 MCP Resources**: Static data resources for program info, functions, strings, imports, and exports
 - **5 MCP Prompts**: Pre-built analysis prompts for common reverse engineering tasks
 - **Result Caching**: Intelligent caching system to improve performance for repeated queries
@@ -21,6 +26,31 @@ GhidrAssistMCP bridges the gap between AI-powered analysis tools and Ghidra's co
 - **Configurable UI**: Easy-to-use interface for managing tools and monitoring activity
 - **Real-time Logging**: Track all MCP requests and responses with detailed logging
 - **Dynamic Tool Management**: Enable/disable tools individually with persistent settings
+- **Ghidra 12.0.4 Compatible**: Uses modern Ghidra APIs (ProgramLoader, etc.)
+
+## What's New in This Fork
+
+### Early MCP Server Start
+The plugin now extends `Plugin` instead of `ProgramPlugin`, so the MCP server starts **immediately when the tool opens** — before any file or program is loaded. Project management tools (list files, create folders, import binaries) work right away.
+
+### Project Management CRUD (10 tools)
+Full create/read/update/delete operations for the Ghidra project:
+- Browse project tree, create folders, import binaries from disk
+- Open/close programs (closing all programs is now allowed — server stays active)
+- Delete, rename, and move files between folders
+- Get project info and save all changes
+
+### Autopilot Tools (4 tools)
+Everything needed for AI-driven reverse engineering:
+- Run auto-analysis on demand
+- Export programs to binary, C header, or Intel HEX
+- Undo/redo with multi-step support
+- Navigate to any address or symbol
+
+### Ghidra 12.0.4 Support
+- Migrated from deprecated `AutoImporter` to new `ProgramLoader.builder()` fluent API
+- Zero removal warnings when building against Ghidra 12.0.4
+- Uses modern `Loaded<Program>` / `LoadResults` APIs
 
 ## Clients
 
@@ -35,22 +65,23 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
 
 ### Prerequisites
 
-- **Ghidra 11.4+** (tested with Ghidra 12.0 Public)
-- **An MCP Client (Like GhidrAssist)**
+- **Ghidra 11.4+** (tested with Ghidra 12.0.4 Public)
+- **Java 21+** (required by Ghidra 12.x)
+- **An MCP Client** (Like GhidrAssist, Claude Code, or any MCP-compatible tool)
 
 ### Binary Release (Recommended)
 
 1. **Download the latest release**:
-   - Go to the [Releases page](https://github.com/jtang613/GhidrAssistMCP/releases)
-   - Download the latest `.zip` file (e.g., `GhidrAssistMCP-v1.0.0.zip`)
+   - Go to the [Releases page](https://github.com/amarce/GhidrAssistMCP/releases)
+   - Download the latest `.zip` file
 
 2. **Install the extension**:
-   - In Ghidra: **File → Install Extensions → Add Extension**
+   - In Ghidra: **File -> Install Extensions -> Add Extension**
    - Select the downloaded ZIP file
    - Restart Ghidra when prompted
 
 3. **Enable the plugin**:
-   - **File → Configure → Configure Plugins**
+   - **File -> Configure -> Configure Plugins**
    - Search for "GhidrAssistMCP"
    - Check the box to enable the plugin
 
@@ -59,7 +90,7 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
 1. **Clone the repository**:
 
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/amarce/GhidrAssistMCP.git
    cd GhidrAssistMCP
    ```
 
@@ -80,14 +111,14 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
 
 4. **Restart / verify**:
    - Restart Ghidra.
-   - If the plugin doesn't appear, enable it via **File → Configure → Configure Plugins** (search for "GhidrAssistMCP").
+   - If the plugin doesn't appear, enable it via **File -> Configure -> Configure Plugins** (search for "GhidrAssistMCP").
 
 ## Configuration
 
 ### Initial Setup
 
 1. **Open the Control Panel**:
-   - Window → GhidrAssistMCP (or use the toolbar icon)
+   - Window -> GhidrAssistMCP (or use the toolbar icon)
 
 2. **Configure Server Settings**:
    - **Host**: Default is `localhost`
@@ -97,58 +128,36 @@ Shameless self-promotion: [GhidrAssist](https://github.com/jtang613/GhidrAssist)
      - `none`: no authentication (recommended only for trusted local/dev setups)
      - `basic`: HTTP Basic auth with username/password
      - `oauth`: JWT Bearer token validation for an external authorization server
-     - Note: Some clients (including OpenAI-hosted tools) require OAuth for authenticated MCP servers.
 
 3. **OAuth mode fields are resource-server validation settings**:
    - **Issuer**: expected `iss` claim and authorization server identifier.
    - **JWKS URL**: signing keys endpoint used to verify token signatures (optional if discoverable from issuer metadata).
    - **Audience**: expected `aud` claim value.
    - **Required Scope** (optional): required scope value in token `scope`/`scp` claim.
-   - These are **MCP resource-server** settings used to validate bearer tokens on incoming requests.
 
 4. **ChatGPT connector callback/redirect setup is separate from resource-server metadata**:
-   - **Callback ID (optional in the UI)** should match the callback identifier shown in ChatGPT app/connector management (or the redirect URI identifier used there).
+   - **Callback ID (optional in the UI)** should match the callback identifier shown in ChatGPT app/connector management.
    - Do **not** reuse Auth0 audience/scope values for this callback field.
-   - This plugin keeps callback ID for operator guidance/configuration only and does not publish it as OAuth protected-resource metadata.
-
-### OpenAI MCP Compatibility Guidance
-
-- Use **`none`** for local/dev workflows where your MCP server is only reachable in a trusted environment.
-- Use **`oauth`** for OpenAI-hosted MCP connections so clients can authenticate with `Authorization: Bearer <token>`.
 
 ### Deployment behind a reverse proxy
 
 When your MCP server is published through Nginx/Caddy/Cloudflare (or any TLS terminator), the external URL is often different from the local bind address (`http://localhost:8080`).
 
-- Set **Public Base URL** in OAuth settings to your externally reachable origin (for example `https://ghidramcp.amarce.me`).
-  - This value is used for OAuth protected-resource metadata (`resource`) and discovery URLs emitted in authentication headers (such as `WWW-Authenticate: ... resource_metadata=...`).
+- Set **Public Base URL** in OAuth settings to your externally reachable origin.
 - If you cannot set a fixed public URL, enable **Trust X-Forwarded-* headers for discovery URLs**.
-  - This makes metadata/discovery URLs derive scheme/host from `X-Forwarded-Proto` and `X-Forwarded-Host`.
-  - Enable this **only** behind a trusted proxy that strips/spoofs these headers from untrusted clients.
-
-Typical reverse proxy behavior should include forwarding:
-
-- `X-Forwarded-Proto: https`
-- `X-Forwarded-Host: <public-hostname>`
-
-### Troubleshooting: OpenAI "OAuth required" / Basic Auth incompatibility
-
-- **Symptom**: Your client (including OpenAI-hosted tools) says **"OAuth required"** even when you expect mixed-mode behavior.
-- **Cause**: The MCP server is configured for **Basic auth**, which leads to **Basic Auth incompatibility** with OAuth-only client expectations.
-- **Resolution**: Switch server auth to **OAuth mode** and provide resource-server JWT validation settings (issuer/JWKS/audience/scope), or disable auth for trusted local use.
 
 ### Tool Management
 
 The Configuration tab allows you to:
 
-- **View all available tools** (40 total)
+- **View all available tools** (59 total)
 - **Enable/disable individual tools** using checkboxes
 - **Save configuration** to persist across sessions
 - **Monitor tool status** in real-time
 
 ## Available Tools
 
-GhidrAssistMCP provides 40 tools organized into categories. Several tools use an action-based API pattern where a single tool provides multiple related operations.
+GhidrAssistMCP provides 59 tools organized into categories.
 
 ### Program & Data Listing
 
@@ -166,6 +175,21 @@ GhidrAssistMCP provides 40 tools organized into categories. Several tools use an
 | `list_namespaces` | List namespaces in the program |
 | `list_relocations` | List relocation entries |
 
+### Project Management
+
+| Tool | Description |
+| ---- | ----------- |
+| `get_project_info` | Get project name, location, file/folder counts, and open programs |
+| `list_project_files` | Browse project tree — list files and folders at a given path |
+| `create_project_folder` | Create new folders in the project |
+| `import_file` | Import a binary from disk into the project (auto-detects format) |
+| `delete_project_file` | Delete a file from the project (destructive, requires confirmation) |
+| `open_program` | Open a project file in the CodeBrowser |
+| `close_program` | Close an open program (all programs can be closed — server stays active) |
+| `save_project` | Save one or all open programs |
+| `rename_project_item` | Rename files or folders in the project |
+| `move_project_file` | Move files between project folders |
+
 ### Function & Code Analysis
 
 | Tool | Description |
@@ -174,10 +198,20 @@ GhidrAssistMCP provides 40 tools organized into categories. Several tools use an
 | `get_current_function` | Get function at current cursor position |
 | `get_current_address` | Get current cursor address |
 | `get_hexdump` | Get hexdump of memory at specific address |
+| `get_bytes` | Get raw bytes from memory |
 | `disassemble_range` | Disassemble raw instruction ranges even outside defined functions |
-| `evaluate_expression` | Evaluate register/expression values at an address using lightweight constant propagation |
+| `evaluate_expression` | Evaluate register/expression values at an address |
 | `get_call_graph` | Get call graph for a function (callers and callees) |
 | `get_basic_blocks` | Get basic block information for a function |
+
+### Autopilot Tools
+
+| Tool | Description |
+| ---- | ----------- |
+| `analyze_program` | Run Ghidra auto-analysis on a program (background) |
+| `export_program` | Export program to binary, C/C++ header, or Intel HEX format |
+| `undo_redo` | Undo or redo operations with multi-step support |
+| `go_to_address` | Navigate listing view to a hex address or symbol name |
 
 ### Consolidated Tools
 
@@ -188,16 +222,16 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | Parameter | Values | Description |
 | --------- | ------ | ----------- |
 | `format` | `decompiler`, `disassembly`, `pcode` | Output format |
-| `raw` | boolean | Only affects `format: "pcode"` (raw pcode ops vs grouped by basic blocks) |
+| `raw` | boolean | Only affects `format: "pcode"` |
 | `auto_analyze` | boolean | Optional: run auto-analysis before producing output |
-| `memory_zones` | array | Optional per-request zones (`start`, `end`, `label`) to include memory context in output |
+| `memory_zones` | array | Optional per-request zones for memory context |
 
 #### `class` - Class Operations Tool
 
 | Action | Description |
 | ------ | ----------- |
 | `list` | List classes with optional pattern filtering and pagination |
-| `get_info` | Get detailed class information (methods, fields, vtables, virtual functions) |
+| `get_info` | Get detailed class information (methods, fields, vtables) |
 
 #### `xrefs` - Cross-Reference Tool
 
@@ -212,9 +246,9 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | ------ | ----------- |
 | `create` | Create a new structure from C definition or empty |
 | `modify` | Modify an existing structure with new C definition |
-| `merge` | Merge (overlay) fields from a C definition onto an existing structure without deleting existing fields |
-| `set_field` | Set/insert a single field at a specific offset without needing a full C struct (use `field_name` to name it) |
-| `name_gap` | Convert undefined bytes at an offset/length into a named `byte[]`-like field (useful for “naming gaps”; uses `field_name`) |
+| `merge` | Merge fields from a C definition onto an existing structure |
+| `set_field` | Set/insert a single field at a specific offset |
+| `name_gap` | Convert undefined bytes at an offset into a named field |
 | `auto_create` | Automatically create structure from variable usage patterns |
 | `rename_field` | Rename a field within a structure |
 | `field_xrefs` | Find cross-references to a specific struct field |
@@ -230,7 +264,7 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | Parameter | Values | Description |
 | --------- | ------ | ----------- |
 | `target` | `function`, `address` | Where to set the comment |
-| `comment_type` | `eol`, `pre`, `post`, `plate`, `repeatable` | Comment type for `target: "address"` (default `eol`) |
+| `comment_type` | `eol`, `pre`, `post`, `plate`, `repeatable` | Comment type |
 
 #### `bookmarks` - Bookmark Management Tool
 
@@ -245,16 +279,16 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | Action | Description |
 | ------ | ----------- |
 | `auto_analyze` | Trigger Ghidra auto-analysis for the target program |
-| `set_memory_zones` | Configure custom memory zones used by analysis/decompilation tasks |
-| `list_memory_zones` | List configured memory zones for the target program |
-| `clear_memory_zones` | Remove all configured memory zones for the target program |
+| `set_memory_zones` | Configure custom memory zones |
+| `list_memory_zones` | List configured memory zones |
+| `clear_memory_zones` | Remove all configured memory zones |
 
 ### Type & Prototype Tools
 
 | Tool | Description |
 | ----- | ----------- |
 | `get_data_type` | Get detailed data type information and structure definitions |
-| `delete_data_type` | Delete a data type by name (optionally scoped by `category`) |
+| `delete_data_type` | Delete a data type by name |
 | `set_data_type` | Set data type at a specific address |
 | `set_function_prototype` | Set function signature/prototype |
 | `set_local_variable_type` | Set data type for local variables |
@@ -264,13 +298,18 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | Tool | Description |
 | ----- | ----------- |
 | `function_lifecycle` | Create, delete, or redefine functions by address/body range |
-| `patch_bytes` | Patch bytes in writable memory with optional dry-run and byte verification |
+| `patch_bytes` | Patch bytes in writable memory with optional dry-run |
+| `assemble_at` | Assemble instructions at a specific address |
+| `clear_code` | Clear code at a specific address |
+| `create_function_at` | Create a function at a specific address |
+| `reanalyze_range` | Reanalyze a specific address range |
+| `rename_symbol_batch` | Batch rename multiple symbols |
 
 ### Scripting Tools
 
 | Tool | Description |
 | ----- | ----------- |
-| `run_script` | ⚠️ **HIGH RISK** Executes inline Python/Java Ghidra scripts against the current program. Prefer `mode: "read_only"`; only use `mode: "full"` for intentional mutations. |
+| `run_script` | Executes inline Python/Java Ghidra scripts against the current program |
 
 ### Search Tools
 
@@ -279,10 +318,6 @@ These tools bundle related operations behind a discriminator parameter (e.g., `a
 | `search_bytes` | Search for byte patterns in memory |
 
 ### Async Task Management
-
-Long-running operations (decompilation, structure analysis, field xrefs, script execution, and analysis_tasks/patching workflows) execute asynchronously:
-
-> Recommended usage: keep `run_script` in `mode: "read_only"` by default for safe analysis workflows. Use async (`"async": true`) when scripts or analysis jobs may exceed normal request latency (e.g., larger instruction walks, decompilation-heavy logic, or broad scans).
 
 | Tool | Description |
 | ---- | ----------- |
@@ -312,38 +347,59 @@ Pre-built prompts for common analysis tasks:
 | `identify_vulnerability` | Security vulnerability identification |
 | `document_function` | Generate function documentation |
 | `trace_data_flow` | Data flow analysis prompt |
-| `trace_network_data` | Trace network send/recv call stacks for protocol analysis and network vulnerability identification |
+| `trace_network_data` | Trace network send/recv call stacks |
 
 ## Usage Examples
 
-### Basic Program Information
+### Project Management (No Program Required)
 
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "get_program_info"
+    "name": "list_project_files",
+    "arguments": { "folder_path": "/" }
   }
 }
 ```
 
-### List Functions with Pattern Filtering
+### Import a Binary
 
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "list_functions",
+    "name": "import_file",
     "arguments": {
-      "pattern": "init",
-      "case_sensitive": false,
-      "limit": 50
+      "file_path": "/path/to/binary.exe",
+      "folder_path": "/malware"
     }
   }
 }
 ```
 
-### Decompile Function (`get_code`)
+### Open and Analyze
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "open_program",
+    "arguments": { "file_path": "/malware/binary.exe" }
+  }
+}
+```
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "analyze_program"
+  }
+}
+```
+
+### Decompile Function
 
 ```json
 {
@@ -358,132 +414,50 @@ Pre-built prompts for common analysis tasks:
 }
 ```
 
-### Get Class Information (Action-Based)
+### Navigate and Inspect
 
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "class",
+    "name": "go_to_address",
+    "arguments": { "address": "main" }
+  }
+}
+```
+
+### Export and Save
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "export_program",
     "arguments": {
-      "action": "get_info",
-      "class_name": "MyClass"
+      "output_path": "/tmp/patched.bin",
+      "format": "binary"
     }
   }
 }
 ```
 
-### Search Classes (Action-Based)
-
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "class",
-    "arguments": {
-      "action": "list",
-      "pattern": "Socket",
-      "case_sensitive": false
-    }
+    "name": "save_project"
   }
 }
 ```
 
-### Auto-Create Structure (Action-Based)
+### Undo/Redo
 
 ```json
 {
   "method": "tools/call",
   "params": {
-    "name": "struct",
-    "arguments": {
-      "action": "auto_create",
-      "function_identifier": "0x00401000",
-      "variable_name": "ctx"
-    }
-  }
-}
-```
-
-### Find Struct Field Cross-References (Action-Based)
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "struct",
-    "arguments": {
-      "action": "field_xrefs",
-      "structure_name": "Host",
-      "field_name": "port"
-    }
-  }
-}
-```
-
-### Scripted Constant Propagation Probe (`run_script`, read-only)
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "run_script",
-    "arguments": {
-      "mode": "read_only",
-      "language": "python",
-      "code": "from ghidra.program.util import SymbolicPropogator\nfrom ghidra.util.task import ConsoleTaskMonitor\nfunc = getFunctionContaining(currentAddress)\nprop = SymbolicPropogator(currentProgram)\nprop.setParamRefCheck(True)\nprop.setReturnRefCheck(True)\nmonitor = ConsoleTaskMonitor()\nif func:\n    flow = prop.flowConstants(func.getEntryPoint(), func.getBody(), monitor)\n    print('entry=', func.getEntryPoint(), 'flows=', flow)\nelse:\n    print('no function at currentAddress')"
-    }
-  }
-}
-```
-
-### Async Instruction Iteration Sweep (`run_script`)
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "run_script",
-    "arguments": {
-      "mode": "read_only",
-      "language": "python",
-      "async": true,
-      "timeout_ms": 120000,
-      "code": "listing = currentProgram.getListing()\nfunc = getFunctionContaining(currentAddress)\ncount = 0\nif func:\n    it = listing.getInstructions(func.getBody(), True)\n    while it.hasNext() and count < 5000:\n        ins = it.next()\n        count += 1\n        if count <= 25:\n            print('%s: %s' % (ins.getAddress(), ins))\nprint('instruction_count=', count)"
-    }
-  }
-}
-```
-
-### Delete a Data Type
-
-If multiple types share the same name across categories, pass `category` (or pass a full path in `name` starting with `/`).
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "delete_data_type",
-    "arguments": {
-      "name": "MyStruct",
-      "category": "/mytypes"
-    }
-  }
-}
-```
-
-### Rename Function (Action-Based)
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "rename_symbol",
-    "arguments": {
-      "action": "function",
-      "address": "0x00401000",
-      "new_name": "decrypt_buffer"
-    }
+    "name": "undo_redo",
+    "arguments": { "action": "undo", "count": 3 }
   }
 }
 ```
@@ -495,9 +469,7 @@ When working with multiple open programs, first list them:
 ```json
 {
   "method": "tools/call",
-  "params": {
-    "name": "list_programs"
-  }
+  "params": { "name": "list_programs" }
 }
 ```
 
@@ -525,6 +497,7 @@ GhidrAssistMCP uses a singleton architecture that enables seamless operation acr
 1. **Single Shared Server**: One MCP server (port 8080) serves all CodeBrowser windows
 2. **Focus Tracking**: Automatically detects which CodeBrowser window is currently active
 3. **Context Hints**: All tool responses include context information to help AI understand which binary is in focus
+4. **Early Start**: Server starts before any program is loaded — project management tools work immediately
 
 ### Context Information in Responses
 
@@ -536,21 +509,6 @@ Every tool response includes a context header:
 <tool response content>
 ```
 
-or when targeting a different program:
-
-```plaintext
-[Context] Operating on: lib.so | Active window: main.exe | Total open programs: 3
-
-<tool response content>
-```
-
-### Benefits for AI Assistants
-
-- **Smart Defaults**: When no `program_name` is specified, tools automatically use the program from the active window
-- **Context Awareness**: AI knows which binary the user is currently viewing
-- **Prevents Confusion**: Clear indication when operating on a different binary than what's in the active window
-- **Multi-tasking**: Work with multiple binaries without constantly specifying which one to target
-
 ## Architecture
 
 ### Core Components
@@ -561,40 +519,34 @@ GhidrAssistMCP/
 │   ├── Tracks all CodeBrowser windows
 │   ├── Manages focus tracking
 │   └── Owns shared server and backend
-├── GhidrAssistMCPPlugin      # Plugin instance (one per CodeBrowser window)
-│   └── Registers with singleton manager
+├── GhidrAssistMCPPlugin      # Plugin instance (extends Plugin, not ProgramPlugin)
+│   ├── Registers with singleton manager
+│   ├── Handles program events via processEvent()
+│   └── Server starts immediately in init()
 ├── GhidrAssistMCPServer      # HTTP MCP server (SSE + Streamable)
 │   └── Single shared instance on port 8080
 ├── GhidrAssistMCPBackend     # Tool management and execution
-│   ├── Tool registry with enable/disable states
+│   ├── Tool registry with enable/disable states (59 tools)
 │   ├── Result caching system
 │   ├── Async task management
 │   └── Resource and prompt registries
 ├── GhidrAssistMCPProvider    # UI component provider
 │   └── First registered instance provides UI
 ├── cache/                    # Caching infrastructure
-│   ├── McpCache.java
-│   └── CacheEntry.java
 ├── tasks/                    # Async task management
-│   ├── McpTaskManager.java
-│   └── McpTask.java
 ├── resources/                # MCP Resources (5 total)
-│   ├── ProgramInfoResource.java
-│   ├── FunctionListResource.java
-│   ├── StringsResource.java
-│   ├── ImportsResource.java
-│   └── ExportsResource.java
 ├── prompts/                  # MCP Prompts (5 total)
-│   ├── AnalyzeFunctionPrompt.java
-│   ├── IdentifyVulnerabilityPrompt.java
-│   ├── DocumentFunctionPrompt.java
-│   ├── TraceDataFlowPrompt.java
-│   └── TraceNetworkDataPrompt.java
-└── tools/                    # MCP Tools (40 total)
-    ├── Consolidated action-based tools
-    ├── Analysis tools
-    ├── Modification tools
-    └── Navigation tools
+└── tools/                    # MCP Tools (59 total)
+    ├── Program & data listing tools (11)
+    ├── Project management tools (10)
+    ├── Function & code analysis tools (9)
+    ├── Autopilot tools (4)
+    ├── Consolidated action-based tools (8)
+    ├── Type & prototype tools (5)
+    ├── Binary & function mutation tools (7)
+    ├── Scripting tools (1)
+    ├── Search tools (1)
+    └── Async task management tools (3)
 ```
 
 ### Tool Design Patterns
@@ -631,25 +583,6 @@ GhidrAssistMCP/
 
 ## Development
 
-### Project Structure
-
-```plaintext
-src/main/java/ghidrassistmcp/
-├── GhidrAssistMCPPlugin.java      # Main plugin class
-├── GhidrAssistMCPManager.java     # Singleton coordinator
-├── GhidrAssistMCPProvider.java    # UI provider with tabs
-├── GhidrAssistMCPServer.java      # MCP server implementation
-├── GhidrAssistMCPBackend.java     # Backend tool/resource/prompt management
-├── McpBackend.java                # Backend interface
-├── McpTool.java                   # Tool interface
-├── McpEventListener.java          # Event notification interface
-├── cache/                         # Caching system
-├── tasks/                         # Async task system
-├── resources/                     # MCP resources
-├── prompts/                       # MCP prompts
-└── tools/                         # Tool implementations (34 files)
-```
-
 ### Adding New Tools
 
 1. **Implement McpTool interface**:
@@ -663,20 +596,19 @@ src/main/java/ghidrassistmcp/
        public String getDescription() { return "Description"; }
 
        @Override
-       public boolean isReadOnly() { return true; }
-
-       @Override
-       public boolean isLongRunning() { return false; }
-
-       @Override
-       public boolean isCacheable() { return true; }
-
-       @Override
        public McpSchema.JsonSchema getInputSchema() { /* ... */ }
 
        @Override
        public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program program) {
            // Implementation
+       }
+
+       // For tools that need project/backend access:
+       @Override
+       public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program program, GhidrAssistMCPBackend backend) {
+           PluginTool tool = backend.getPluginTool();
+           Project project = tool.getProject();
+           // ...
        }
    }
    ```
@@ -697,17 +629,14 @@ gradle clean
 # Build extension zip (written to dist/)
 gradle buildExtension
 
-# Install (extract) extension into the Ghidra user Extensions directory
+# Install extension into the Ghidra user Extensions directory
 gradle installExtension
 
-# Uninstall (delete extracted directory from the Ghidra user Extensions directory)
+# Uninstall
 gradle uninstallExtension
 
-# Build/install with specific Ghidra path (required if GHIDRA_INSTALL_DIR isn't set)
-gradle -PGHIDRA_INSTALL_DIR=/path/to/ghidra installExtension
-
-# Debug build
-gradle buildExtension --debug
+# Build with specific Ghidra path
+gradle -PGHIDRA_INSTALL_DIR=/path/to/ghidra buildExtension
 ```
 
 ### Dependencies
@@ -715,30 +644,7 @@ gradle buildExtension --debug
 - **MCP SDK**: `io.modelcontextprotocol.sdk:mcp:0.17.1`
 - **Jetty Server**: `11.0.20` (HTTP/SSE transport)
 - **Jackson**: `2.18.3` (JSON processing)
-- **Ghidra API**: Bundled with Ghidra installation
-
-## Logging
-
-### UI Logging
-
-The **Log** tab provides real-time monitoring:
-
-- **Session Events**: Server start/stop, program changes
-- **Tool Requests**: `REQ: tool_name {parameters...}`
-- **Tool Responses**: `RES: tool_name {response...}`
-- **Error Messages**: Failed operations and diagnostics
-- **Cache Hits**: When cached results are returned
-
-### Console Logging
-
-Detailed logging in Ghidra's console:
-
-- Tool registration and initialization
-- MCP server lifecycle events
-- Async task execution and completion
-- Cache statistics
-- Database transaction operations
-- Error stack traces and debugging information
+- **Ghidra API**: Bundled with Ghidra installation (11.4+ / 12.x)
 
 ## Troubleshooting
 
@@ -764,23 +670,10 @@ Detailed logging in Ghidra's console:
 
 #### Tool Execution Failures
 
-- Verify program is loaded in Ghidra
+- Some tools require an open program — check the tool description
+- Project management tools work without any program loaded
 - Check tool parameters are correct
 - Review error messages in Log tab
-
-#### Async Task Issues
-
-- Use `get_task_status` to check task state
-- Use `list_tasks` to see all tasks
-- Use `cancel_task` if a task is stuck
-
-### Debug Mode
-
-Enable debug logging by adding to Ghidra startup:
-
-```bash
--Dlog4j.logger.ghidrassistmcp=DEBUG
-```
 
 ## Contributing
 
@@ -790,15 +683,6 @@ Enable debug logging by adding to Ghidra startup:
 4. **Follow code style**: Use existing patterns and conventions
 5. **Submit a pull request** with detailed description
 
-### Code Standards
-
-- **Java 21+ features** where appropriate
-- **Proper exception handling** with meaningful messages
-- **Transaction safety** for all database operations
-- **Thread safety** for UI operations
-- **Comprehensive documentation** for public APIs
-- **Action-based consolidation** for related tool operations
-
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
@@ -807,9 +691,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **NSA/Ghidra Team** for the excellent reverse engineering platform
 - **Anthropic** for the Model Context Protocol specification
+- **[symgraph/GhidrAssistMCP](https://github.com/symgraph/GhidrAssistMCP)** — original upstream project by [jtang613](https://github.com/jtang613)
 
 ---
 
 **Questions or Issues?**
 
-Please open an issue on the project repository for bug reports, feature requests, or questions about usage and development.
+Please open an issue on the [project repository](https://github.com/amarce/GhidrAssistMCP/issues) for bug reports, feature requests, or questions about usage and development.
