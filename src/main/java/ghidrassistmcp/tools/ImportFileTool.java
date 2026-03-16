@@ -75,14 +75,7 @@ public class ImportFileTool implements McpTool {
 
     @Override
     public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program currentProgram, GhidrAssistMCPBackend backend) {
-        PluginTool pluginTool = backend.getPluginTool();
-        if (pluginTool == null) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: No active Ghidra tool available")
-                .build();
-        }
-
-        Project project = pluginTool.getProject();
+        Project project = backend.getProject();
         if (project == null) {
             return McpSchema.CallToolResult.builder()
                 .addTextContent("Error: No project is currently open")
@@ -150,6 +143,8 @@ public class ImportFileTool implements McpTool {
                     result.append("Language: ").append(prog.getLanguageID()).append("\n");
                     result.append("Format: ").append(prog.getExecutableFormat()).append("\n");
                     primary.save(TaskMonitor.DUMMY);
+                    // Register in headless mode
+                    backend.addHeadlessProgram(prog);
                 }
             } finally {
                 results.close();

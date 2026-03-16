@@ -56,13 +56,6 @@ public class CloseProgramTool implements McpTool {
 
     @Override
     public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program currentProgram, GhidrAssistMCPBackend backend) {
-        PluginTool pluginTool = backend.getPluginTool();
-        if (pluginTool == null) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: No active Ghidra tool available")
-                .build();
-        }
-
         String programName = (String) arguments.get("program_name");
         if (programName == null || programName.trim().isEmpty()) {
             return McpSchema.CallToolResult.builder()
@@ -119,15 +112,19 @@ public class CloseProgramTool implements McpTool {
                 .build();
         }
 
-        ProgramManager pm = pluginTool.getService(ProgramManager.class);
-        if (pm == null) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: ProgramManager service not available")
-                .build();
-        }
-
         String closedName = toClose.getName();
-        pm.closeProgram(toClose, false);
+
+        // Close via ProgramManager in GUI mode, or remove from headless list
+        PluginTool pluginTool = backend.getPluginTool();
+        if (pluginTool != null) {
+            ProgramManager pm = pluginTool.getService(ProgramManager.class);
+            if (pm != null) {
+                pm.closeProgram(toClose, false);
+            }
+        } else {
+            backend.removeHeadlessProgram(toClose);
+            toClose.release(this);
+        }
 
         return McpSchema.CallToolResult.builder()
             .addTextContent("Closed program: " + closedName + "\n" +

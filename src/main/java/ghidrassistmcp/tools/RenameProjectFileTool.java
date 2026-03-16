@@ -58,14 +58,7 @@ public class RenameProjectFileTool implements McpTool {
 
     @Override
     public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program currentProgram, GhidrAssistMCPBackend backend) {
-        PluginTool pluginTool = backend.getPluginTool();
-        if (pluginTool == null) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: No active Ghidra tool available")
-                .build();
-        }
-
-        Project project = pluginTool.getProject();
+        Project project = backend.getProject();
         if (project == null) {
             return McpSchema.CallToolResult.builder()
                 .addTextContent("Error: No project is currently open")

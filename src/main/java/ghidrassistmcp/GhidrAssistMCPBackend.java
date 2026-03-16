@@ -106,6 +106,8 @@ public class GhidrAssistMCPBackend implements McpBackend {
     private volatile GhidrAssistMCPManager manager;
     private volatile boolean asyncExecutionEnabled = true;
     private volatile boolean allowDestructiveTools = false;
+    private volatile ghidra.framework.model.Project headlessProject;
+    private final List<Program> headlessPrograms = new CopyOnWriteArrayList<>();
     private final McpTaskManager taskManager;
     private final McpResourceRegistry resourceRegistry;
     private final McpPromptRegistry promptRegistry;
@@ -673,26 +675,31 @@ public class GhidrAssistMCPBackend implements McpBackend {
      * @return The resolved program to operate on
      */
     private Program resolveTargetProgram(Map<String, Object> arguments) {
-        if (manager == null) {
-            return null;
-        }
-
         // Check if a specific program was requested
-        Object programNameObj = arguments.get("program_name");
+        Object programNameObj = arguments != null ? arguments.get("program_name") : null;
         if (programNameObj instanceof String) {
             String programName = (String) programNameObj;
             if (!programName.trim().isEmpty()) {
-                Program found = manager.getProgramByName(programName);
-                if (found != null) {
-                    Msg.info(this, "Resolved program by name: " + found.getName());
-                    return found;
+                // Search in manager programs
+                if (manager != null) {
+                    Program found = manager.getProgramByName(programName);
+                    if (found != null) {
+                        Msg.info(this, "Resolved program by name: " + found.getName());
+                        return found;
+                    }
+                }
+                // Search in headless programs
+                for (Program p : headlessPrograms) {
+                    if (programName.equals(p.getName())) {
+                        return p;
+                    }
                 }
                 Msg.warn(this, "Program not found: " + programName + ", using current program");
             }
         }
 
         // Default to current program
-        return manager.getCurrentProgram();
+        return getCurrentProgram();
     }
 
     /**
@@ -701,7 +708,12 @@ public class GhidrAssistMCPBackend implements McpBackend {
      */
     public Program getCurrentProgram() {
         if (manager != null) {
-            return manager.getCurrentProgram();
+            Program p = manager.getCurrentProgram();
+            if (p != null) return p;
+        }
+        // Fallback to headless programs
+        if (!headlessPrograms.isEmpty()) {
+            return headlessPrograms.get(headlessPrograms.size() - 1);
         }
         return null;
     }
@@ -710,10 +722,17 @@ public class GhidrAssistMCPBackend implements McpBackend {
      * Get all open programs from ALL registered tools.
      */
     public List<Program> getAllOpenPrograms() {
+        List<Program> all = new ArrayList<>();
         if (manager != null) {
-            return manager.getAllOpenPrograms();
+            all.addAll(manager.getAllOpenPrograms());
         }
-        return new ArrayList<>();
+        // Include headless programs not already in the list
+        for (Program p : headlessPrograms) {
+            if (!all.contains(p)) {
+                all.add(p);
+            }
+        }
+        return all;
     }
     
     /**
@@ -768,6 +787,42 @@ public class GhidrAssistMCPBackend implements McpBackend {
             return manager.getActiveTool();
         }
         return null;
+    }
+
+    /**
+     * Get the Ghidra Project — works in both GUI and headless modes.
+     * In GUI mode, returns the project from the active PluginTool.
+     * In headless mode, returns the project set via setHeadlessProject().
+     */
+    public ghidra.framework.model.Project getProject() {
+        ghidra.framework.plugintool.PluginTool tool = getPluginTool();
+        if (tool != null) {
+            return tool.getProject();
+        }
+        return headlessProject;
+    }
+
+    /**
+     * Set the project for headless mode (no CodeBrowser/PluginTool).
+     */
+    public void setHeadlessProject(ghidra.framework.model.Project project) {
+        this.headlessProject = project;
+    }
+
+    /**
+     * Add a program to the headless programs list.
+     */
+    public void addHeadlessProgram(Program program) {
+        if (program != null && !headlessPrograms.contains(program)) {
+            headlessPrograms.add(program);
+        }
+    }
+
+    /**
+     * Remove a program from the headless programs list.
+     */
+    public void removeHeadlessProgram(Program program) {
+        headlessPrograms.remove(program);
     }
     
     /**

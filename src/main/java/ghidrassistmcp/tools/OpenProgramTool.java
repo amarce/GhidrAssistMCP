@@ -58,14 +58,7 @@ public class OpenProgramTool implements McpTool {
 
     @Override
     public McpSchema.CallToolResult execute(Map<String, Object> arguments, Program currentProgram, GhidrAssistMCPBackend backend) {
-        PluginTool pluginTool = backend.getPluginTool();
-        if (pluginTool == null) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: No active Ghidra tool available")
-                .build();
-        }
-
-        Project project = pluginTool.getProject();
+        Project project = backend.getProject();
         if (project == null) {
             return McpSchema.CallToolResult.builder()
                 .addTextContent("Error: No project is currently open")
@@ -112,23 +105,18 @@ public class OpenProgramTool implements McpTool {
         for (Program p : openPrograms) {
             DomainFile df = p.getDomainFile();
             if (df != null && df.getPathname().equals(domainFile.getPathname())) {
-                // Already open — just make it the active program
-                ProgramManager pm = pluginTool.getService(ProgramManager.class);
-                if (pm != null) {
-                    pm.setCurrentProgram(p);
+                // Already open
+                PluginTool pluginTool = backend.getPluginTool();
+                if (pluginTool != null) {
+                    ProgramManager pm = pluginTool.getService(ProgramManager.class);
+                    if (pm != null) {
+                        pm.setCurrentProgram(p);
+                    }
                 }
                 return McpSchema.CallToolResult.builder()
                     .addTextContent("Program already open, set as active: " + p.getName())
                     .build();
             }
-        }
-
-        // Open the file using ProgramManager
-        ProgramManager pm = pluginTool.getService(ProgramManager.class);
-        if (pm == null) {
-            return McpSchema.CallToolResult.builder()
-                .addTextContent("Error: ProgramManager service not available")
-                .build();
         }
 
         try {
@@ -142,8 +130,17 @@ public class OpenProgramTool implements McpTool {
             }
 
             Program program = (Program) obj;
-            pm.openProgram(program);
-            program.release(this);
+
+            // In GUI mode, use ProgramManager; in headless mode, add to headless list
+            PluginTool pluginTool = backend.getPluginTool();
+            if (pluginTool != null) {
+                ProgramManager pm = pluginTool.getService(ProgramManager.class);
+                if (pm != null) {
+                    pm.openProgram(program);
+                }
+            } else {
+                backend.addHeadlessProgram(program);
+            }
 
             return McpSchema.CallToolResult.builder()
                 .addTextContent("Opened program: " + program.getName() + "\n" +
