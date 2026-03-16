@@ -183,9 +183,9 @@ GhidrAssistMCP provides 59 tools organized into categories.
 | `list_project_files` | Browse project tree — list files and folders at a given path |
 | `create_project_folder` | Create new folders in the project |
 | `import_file` | Import a binary from disk into the project (auto-detects format) |
-| `delete_project_file` | Delete a file from the project (destructive, requires confirmation) |
+| `delete_project_file` | Delete a file from the project (cannot delete the last file — keeps MCP auto-start working) |
 | `open_program` | Open a project file in the CodeBrowser |
-| `close_program` | Close an open program (all programs can be closed — server stays active) |
+| `close_program` | Close an open program (cannot close the last one — keeps MCP server context) |
 | `save_project` | Save one or all open programs |
 | `rename_project_item` | Rename files or folders in the project |
 | `move_project_file` | Move files between project folders |
@@ -645,6 +645,17 @@ gradle -PGHIDRA_INSTALL_DIR=/path/to/ghidra buildExtension
 - **Jetty Server**: `11.0.20` (HTTP/SSE transport)
 - **Jackson**: `2.18.3` (JSON processing)
 - **Ghidra API**: Bundled with Ghidra installation (11.4+ / 12.x)
+
+## Safeguards
+
+GhidrAssistMCP includes safeguards to prevent the headless MCP server from becoming unusable:
+
+| Safeguard | Tool | Reason |
+| --------- | ---- | ------ |
+| **Cannot close last open program** | `close_program` | The headless MCP server needs at least one program open to provide a program context for analysis tools. Open another program first before closing the current one. |
+| **Cannot delete last project file** | `delete_project_file` | The headless MCP server auto-starts by opening the first file in the project. If all files are deleted, the server cannot auto-start with a program context. Import a new file first before deleting the last one. |
+
+These safeguards ensure the MCP server remains functional when running headlessly (e.g., via pyghidra as a systemd service). If you need to start fresh, create a new project instead of deleting all files.
 
 ## Troubleshooting
 
